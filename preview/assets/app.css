@@ -19,11 +19,11 @@
 .gift-open-glow{opacity:0;transform-origin:50% 30%;filter:blur(8px);will-change:transform,opacity}
 .home-gift-trigger{transform-origin:50% 50%}
 .home-gift-art{transform-origin:50% 88.3%;will-change:transform,opacity}
-.home-gift-stage[data-gift-phase=opening] .home-gift-trigger{animation:giftGrowDouble var(--gift-grow-ms,800ms) cubic-bezier(.16,.76,.18,1) both}
-.home-gift-stage[data-gift-phase=opening] .home-gift-art{animation:giftRockPivot var(--gift-shake-ms,2000ms) var(--gift-grow-ms,800ms) cubic-bezier(.28,.04,.3,1) both,giftWholeFade var(--gift-fade-ms,600ms) var(--gift-fade-start-ms,5600ms) cubic-bezier(.2,.72,.22,1) forwards,giftBoxPress 760ms calc(var(--gift-grow-ms,800ms) + var(--gift-shake-ms,2000ms) - 260ms) ease-in-out both}
-.home-gift-stage[data-gift-phase=opening] .gift-closed-raster{animation:giftClosedToOpen var(--gift-lid-reveal-ms,180ms) var(--gift-lid-start-ms,2800ms) linear forwards}
-.home-gift-stage[data-gift-phase=opening] .gift-open-raster{animation:giftOpenRasterReveal var(--gift-lid-reveal-ms,180ms) var(--gift-lid-start-ms,2800ms) linear forwards}
-.home-gift-stage[data-gift-phase=opening] .gift-open-lid{animation:giftOpenRasterReveal var(--gift-lid-reveal-ms,180ms) var(--gift-lid-start-ms,2800ms) linear forwards}
+.home-gift-stage[data-gift-phase=opening] .home-gift-trigger{animation:giftGrowDouble var(--gift-grow-ms,550ms) cubic-bezier(.16,.76,.18,1) both}
+.home-gift-stage[data-gift-phase=opening] .home-gift-art{animation:giftRockPivot var(--gift-shake-ms,1900ms) var(--gift-grow-ms,550ms) linear both,giftWholeFade var(--gift-fade-ms,400ms) var(--gift-fade-start-ms,5010ms) cubic-bezier(.37,0,.63,1) forwards,giftBoxPress 620ms calc(var(--gift-grow-ms,550ms) + var(--gift-shake-ms,1900ms) - 260ms) linear both}
+.home-gift-stage[data-gift-phase=opening] .gift-closed-raster{animation:giftClosedToOpen var(--gift-lid-reveal-ms,180ms) var(--gift-lid-start-ms,2450ms) steps(1,end) forwards}
+.home-gift-stage[data-gift-phase=opening] .gift-open-raster{animation:giftOpenRasterReveal var(--gift-lid-reveal-ms,180ms) var(--gift-lid-start-ms,2450ms) steps(1,start) forwards}
+.home-gift-stage[data-gift-phase=opening] .gift-open-lid{animation:giftOpenRasterReveal var(--gift-lid-reveal-ms,180ms) var(--gift-lid-start-ms,2450ms) steps(1,start) forwards}
 .home-gift-stage[data-gift-phase=opening] .gift-open-glow{animation:none}
 .home-gift-stage[data-gift-phase=settled] .home-gift-trigger{transform:scale(2);transform-origin:50% 50%}
 .home-gift-stage[data-gift-phase=settled] .gift-closed-raster,.home-gift-stage[data-gift-phase=settled] .gift-open-lid{opacity:0}
@@ -34,7 +34,7 @@
 .app-shell[data-screen=home] .home-copy--revealed h1,.app-shell[data-screen=home] .home-copy--revealed .subtitle,.app-shell[data-screen=home] .home-copy--revealed .intro,.app-shell[data-screen=home] .home-copy--revealed .primary-button{--gift-copy-origin-x:0px;--gift-copy-origin-y:22px;--gift-copy-origin-scale:.985;opacity:0;transform:translateY(22px) scale(.985);animation:giftCopyPart .44s cubic-bezier(.2,.72,.22,1) forwards}
 .app-shell[data-screen=home] .home-copy--revealed h1{animation-delay:.04s}.app-shell[data-screen=home] .home-copy--revealed .subtitle{animation-delay:.12s}.app-shell[data-screen=home] .home-copy--revealed .intro{animation-delay:.2s}.app-shell[data-screen=home] .home-copy--revealed .primary-button{animation-delay:.28s}
 @keyframes giftGrowDouble{0%{transform:scale(1)}100%{transform:scale(2)}}
-@keyframes giftRockPivot{0%,100%{transform:rotate(0deg)}12%{transform:rotate(-6deg)}25%{transform:rotate(6deg)}38%{transform:rotate(-6deg)}51%{transform:rotate(5.5deg)}64%{transform:rotate(-4.5deg)}77%{transform:rotate(3deg)}90%{transform:rotate(-1.3deg)}}
+@keyframes giftRockPivot{0%{transform:rotate(0deg);animation-timing-function:linear}7.368%{transform:rotate(0deg);animation-timing-function:cubic-bezier(.33,1,.68,1)}13.158%{transform:rotate(-4.8deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}26.053%{transform:rotate(3.4deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}38.421%{transform:rotate(-1.7deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}49.474%{transform:rotate(0.6deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}56.842%{transform:rotate(0deg);animation-timing-function:linear}60.526%{transform:rotate(0deg);animation-timing-function:cubic-bezier(.33,1,.68,1)}66.316%{transform:rotate(7deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}78.684%{transform:rotate(-4.2deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}90.526%{transform:rotate(1.8deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}100%{transform:rotate(0deg)}}
 @keyframes giftClosedToOpen{0%{opacity:1}100%{opacity:0}}
 @keyframes giftOpenRasterReveal{0%{opacity:0}100%{opacity:1}}
 @keyframes giftWholeFade{0%{opacity:1}100%{opacity:0}}
@@ -45,9 +45,9 @@
 
 .gift-shadow-rig{transform-box:view-box;transform-origin:256px 452px}
 .gift-asset-shadow{transform-box:fill-box}
-.home-gift-stage[data-gift-phase=opening] .gift-shadow-rig{animation:giftShadowKeepFlat var(--gift-shake-ms,2000ms) var(--gift-grow-ms,800ms) cubic-bezier(.28,.04,.3,1) both}
-@keyframes giftShadowKeepFlat{0%,100%{transform:translateX(0) rotate(0deg)}12%{transform:translateX(-9px) rotate(6deg)}25%{transform:translateX(9px) rotate(-6deg)}38%{transform:translateX(-9px) rotate(6deg)}51%{transform:translateX(8px) rotate(-5.5deg)}64%{transform:translateX(-7px) rotate(4.5deg)}77%{transform:translateX(5px) rotate(-3deg)}90%{transform:translateX(-2px) rotate(1.3deg)}}
-@keyframes giftBoxPress{0%,100%{scale:1 1}34%{scale:1.007 .982}}
+.home-gift-stage[data-gift-phase=opening] .gift-shadow-rig{animation:giftShadowKeepFlat var(--gift-shake-ms,1900ms) var(--gift-grow-ms,550ms) linear both}
+@keyframes giftShadowKeepFlat{0%{transform:translateX(0px) rotate(0deg);animation-timing-function:linear}7.368%{transform:translateX(0px) rotate(0deg);animation-timing-function:cubic-bezier(.33,1,.68,1)}13.158%{transform:translateX(-7.2px) rotate(4.8deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}26.053%{transform:translateX(5.1px) rotate(-3.4deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}38.421%{transform:translateX(-2.55px) rotate(1.7deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}49.474%{transform:translateX(0.9px) rotate(-0.6deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}56.842%{transform:translateX(0px) rotate(0deg);animation-timing-function:linear}60.526%{transform:translateX(0px) rotate(0deg);animation-timing-function:cubic-bezier(.33,1,.68,1)}66.316%{transform:translateX(10.5px) rotate(-7deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}78.684%{transform:translateX(-6.3px) rotate(4.2deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}90.526%{transform:translateX(2.7px) rotate(-1.8deg);animation-timing-function:cubic-bezier(.37,0,.63,1)}100%{transform:translateX(0px) rotate(0deg)}}
+@keyframes giftBoxPress{0%{scale:1 1;animation-timing-function:cubic-bezier(.5,0,.75,0)}41.94%{scale:1.01 .976;animation-timing-function:cubic-bezier(.25,1,.5,1)}62.90%{scale:.997 1.007;animation-timing-function:cubic-bezier(.37,0,.63,1)}100%{scale:1 1}}
 @media(prefers-reduced-motion:reduce){.gift-shadow-rig,.home-gift-stage[data-gift-phase=opening] .gift-shadow-rig{animation:none!important}.home-gift-stage[data-gift-phase=opening] .home-gift-art{scale:none!important}}
 .home-gift-stage[data-gift-phase=opening] .home-gift-trigger{filter:drop-shadow(0 7px 9px rgba(71,40,16,.13))}
 .home-gift-stage[data-gift-phase=opening] .gift-asset-shadow{opacity:.95}
