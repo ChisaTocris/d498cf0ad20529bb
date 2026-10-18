@@ -110,3 +110,6 @@
 .home-copy--revealed .primary-button:hover{transform:translateY(-2px);box-shadow:0 6px 0 #5a1a10,0 18px 32px rgba(92,38,22,.3),inset 0 1px 0 rgba(255,240,210,.35),inset 0 0 0 1px rgba(217,188,133,.5)}
 .home-copy--revealed .primary-button:active{transform:translateY(2px);box-shadow:0 2px 0 #5a1a10,0 8px 16px rgba(92,38,22,.22),inset 0 1px 0 rgba(255,240,210,.3),inset 0 0 0 1px rgba(217,188,133,.38)}
 @media(max-width:760px)and (hover:none)and (pointer:coarse){.app-shell[data-screen=home] .home-ornament{width:min(100%,260px);margin-bottom:16px}.app-shell[data-screen=home] .home-copy--revealed .subtitle{margin-bottom:12px}}
+/* 2026-10-18 glint: a short iridescent streak travels along the lettering, left to right, then rests */
+.gl-glint{animation:glGlint 7.2s cubic-bezier(.3,0,.7,1) infinite}@keyframes glGlint{0%{transform:translateX(311px)}62%{transform:translateX(1149px)}100%{transform:translateX(1149px)}}
+@media (prefers-reduced-motion:reduce){.gl-glint{animation:none;opacity:0}}
