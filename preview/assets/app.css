@@ -13,7 +13,9 @@
 .gift-lid-gap-shadow{fill:rgb(46,18,14);opacity:0;pointer-events:none;transform-box:fill-box;transform-origin:50% 50%;will-change:opacity,transform}
 .gift-lid-contact-shadow{fill:rgba(49,27,17,.2);filter:blur(7px);opacity:0;pointer-events:none;transform-box:fill-box;transform-origin:50% 50%;will-change:opacity,transform}
 .gift-body-canvas{width:512px!important;height:512px!important;overflow:hidden!important}
-.gift-open-lid{opacity:0;transform:translate3d(0,116px,0);transform-box:view-box;transform-origin:75px 202px;will-change:transform,opacity}
+.gift-open-lid{opacity:0;transform:translate3d(0,116px,0);transform-box:view-box;transform-origin:251px 138px;will-change:transform,opacity}
+.gift-illustration{overflow:visible}
+.gift-lid-back{pointer-events:none}
 .gift-lid-canvas{width:512px!important;height:320px!important;overflow:hidden!important}
 .gift-bow-lid{pointer-events:none}
 .gift-open-glow{opacity:0;transform-origin:50% 30%;filter:blur(8px);will-change:transform,opacity}
@@ -51,3 +53,32 @@
 @media(prefers-reduced-motion:reduce){.gift-shadow-rig,.home-gift-stage[data-gift-phase=opening] .gift-shadow-rig{animation:none!important}.home-gift-stage[data-gift-phase=opening] .home-gift-art{scale:none!important}}
 .home-gift-stage[data-gift-phase=opening] .home-gift-trigger{filter:drop-shadow(0 7px 9px rgba(71,40,16,.13))}
 .home-gift-stage[data-gift-phase=opening] .gift-asset-shadow{opacity:.95}
+
+/* 2026-10-17 evening: the "Happy Birthday" banner above the title, with a pull string that fires more confetti */
+.home-garland{position:relative;z-index:2;width:min(100%,780px);margin:0 auto 6px;animation:giftGarlandIn .7s .05s cubic-bezier(.2,.72,.22,1) both}
+.home-garland-art{display:block;line-height:0}
+.home-garland-svg{display:block;width:100%;height:auto;overflow:visible}
+.gl-sheen{animation:glSheen 4.6s linear infinite}
+.gl-holo{animation:glHolo 11s linear infinite}
+.gl-spark{opacity:.15;animation:glSpark 3.4s ease-in-out infinite}
+@keyframes glSheen{0%{transform:translateX(0)}100%{transform:translateX(1700px)}}
+@keyframes glHolo{to{transform:translateX(400px)}}
+@keyframes glSpark{0%,100%{opacity:.12}50%{opacity:1}}
+@keyframes giftGarlandIn{from{opacity:0;transform:translateY(-14px) scale(.985)}to{opacity:1;transform:none}}
+.gift-pull{--pull:0px;position:absolute;left:84%;top:66%;z-index:5;display:flex;flex-direction:column;align-items:center;width:44px;height:150px;margin:0;padding:0;border:0;background:transparent;color:inherit;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;transform-origin:50% 0;animation:giftPullSwing 2.9s ease-in-out infinite;will-change:transform}
+.gift-pull.is-dragging{animation:none;cursor:grabbing}
+.gift-pull.is-snapping{animation:giftPullSnap .7s cubic-bezier(.2,1.2,.3,1) both,giftPullSwing 2.9s .7s ease-in-out infinite}
+.gift-pull:focus-visible{outline:3px solid var(--focus);outline-offset:4px;border-radius:12px}
+.gift-pull-cord{display:block;width:3px;height:calc(58px + var(--pull));border-radius:2px;background:linear-gradient(90deg,#8a5a2b,#c9995a 45%,#6b4320);box-shadow:0 0 0 .5px rgba(60,30,10,.25);transition:height .12s ease-out}
+.gift-pull.is-dragging .gift-pull-cord{transition:none}
+.gift-pull-knot{display:block;width:12px;height:9px;margin-top:-1px;border-radius:50%/60%;background:radial-gradient(circle at 35% 35%,#d7ab6a,#8a5a2b 70%);box-shadow:0 1px 2px rgba(60,30,10,.35)}
+.gift-pull-tag{position:relative;display:flex;align-items:center;justify-content:center;width:30px;height:46px;margin-top:2px;border-radius:7px 7px 9px 9px;background:linear-gradient(180deg,#fff5dc,#f1d49a);color:#8a2a22;font-family:var(--serif);font-size:15px;font-weight:600;line-height:1.05;letter-spacing:.02em;writing-mode:vertical-rl;box-shadow:0 2px 0 #c9a04a,0 6px 14px rgba(92,38,22,.22);transition:transform .15s ease}
+.gift-pull-tag:before{position:absolute;top:-6px;left:50%;width:10px;height:10px;border:2px solid #c9995a;border-radius:50%;background:#fff8e9;content:"";transform:translateX(-50%)}
+.gift-pull-tag:after{position:absolute;inset:-9px;z-index:-1;border-radius:14px;box-shadow:0 0 0 0 rgba(233,185,73,.55);content:"";animation:giftPullHint 2.4s ease-out 1.2s 4}
+.gift-pull.is-armed .gift-pull-tag{transform:scale(1.1) rotate(-6deg);box-shadow:0 2px 0 #c9a04a,0 10px 22px rgba(92,38,22,.3),0 0 0 4px rgba(233,185,73,.35)}
+.gift-pull:hover:not(.is-dragging) .gift-pull-tag{transform:scale(1.05)}
+@keyframes giftPullSwing{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+@keyframes giftPullSnap{0%{transform:translateY(-12px) rotate(0)}40%{transform:translateY(4px) rotate(5deg)}70%{transform:translateY(-3px) rotate(-3deg)}100%{transform:translateY(0) rotate(0)}}
+@keyframes giftPullHint{0%{box-shadow:0 0 0 0 rgba(233,185,73,.6)}100%{box-shadow:0 0 0 16px rgba(233,185,73,0)}}
+@media (max-width:760px),(orientation:portrait){.home-garland{width:min(100%,560px);margin-bottom:2px}.gift-pull{left:82%;top:62%;height:120px}.gift-pull-cord{height:calc(44px + var(--pull))}.gift-pull-tag{width:27px;height:42px;font-size:14px}}
+@media (prefers-reduced-motion:reduce){.home-garland{animation:none}.gl-sheen,.gl-holo,.gl-spark{animation:none}.gl-spark{opacity:.7}.gift-pull{animation:none}.gift-pull-tag:after{animation:none}}
