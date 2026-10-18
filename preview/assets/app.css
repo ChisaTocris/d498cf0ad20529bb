@@ -81,3 +81,16 @@
 .app-shell[data-screen=home] .home-copy--revealed{align-self:start;margin-top:clamp(calc(40 * var(--presentation-unit)),7vh,calc(96 * var(--presentation-unit)))}
 @media (max-width:760px),(orientation:portrait){.home-copy--revealed{align-self:start;margin-top:clamp(28px,6dvh,64px)}}
 @media(max-width:760px)and (hover:none)and (pointer:coarse){.app-shell[data-screen=home] .home-screen.gift-cover.is-open[aria-labelledby=home-title]{place-content:start center}.app-shell[data-screen=home] .home-copy--revealed{align-self:start;margin-top:clamp(28px,6dvh,64px)}}
+/* 2026-10-18 (later): first-screen layout. The ribbon runs edge to edge of the viewport, the string hangs
+   clear of the text column, and the title/subtitle/intro/button get a steadier vertical rhythm. */
+.home-garland{width:100vw;max-width:none;margin:0 0 clamp(18px,3vh,34px) calc(50% - 50vw)}
+.home-garland-svg{width:100vw;height:calc(100vw * .125)}
+.gift-pull{left:80%;top:72%}
+.home-copy--revealed h1{margin-bottom:.18em}
+.home-copy--revealed .subtitle{margin-bottom:clamp(18px,2.6vh,28px)}
+.home-copy--revealed .intro{margin-bottom:clamp(26px,3.6vh,40px)}
+.app-shell[data-screen=home] .home-copy--revealed h1{margin-bottom:.18em}
+.app-shell[data-screen=home] .home-copy--revealed .subtitle{margin-bottom:clamp(18px,2.6vh,28px)}
+.app-shell[data-screen=home] .home-copy--revealed .intro{margin-bottom:clamp(26px,3.6vh,40px)}
+@media (max-width:760px),(orientation:portrait){.home-garland{margin-bottom:clamp(12px,2.2dvh,22px)}.home-garland-svg{height:clamp(84px,24vw,104px)}.gift-pull{left:87%;top:70%;height:120px}}
+@media(max-width:760px)and (hover:none)and (pointer:coarse){.app-shell[data-screen=home] .home-copy--revealed h1{margin-bottom:.2em}.app-shell[data-screen=home] .home-copy--revealed .subtitle{margin-bottom:16px}.app-shell[data-screen=home] .home-copy--revealed .intro{margin-bottom:26px}}
