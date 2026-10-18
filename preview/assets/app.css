@@ -55,17 +55,11 @@
 .home-gift-stage[data-gift-phase=opening] .gift-asset-shadow{opacity:.95}
 
 /* 2026-10-17 evening: the "Happy Birthday" banner above the title, with a pull string that fires more confetti */
-.home-garland{position:relative;z-index:2;width:min(100%,780px);margin:0 auto 6px;animation:giftGarlandIn .7s .05s cubic-bezier(.2,.72,.22,1) both}
+.home-garland{position:relative;z-index:2;width:min(100%,820px);margin:0 auto 4px;animation:giftGarlandIn .7s .05s cubic-bezier(.2,.72,.22,1) both}
 .home-garland-art{display:block;line-height:0}
 .home-garland-svg{display:block;width:100%;height:auto;overflow:visible}
-.gl-sheen{animation:glSheen 4.6s linear infinite}
-.gl-holo{animation:glHolo 11s linear infinite}
-.gl-spark{opacity:.15;animation:glSpark 3.4s ease-in-out infinite}
-@keyframes glSheen{0%{transform:translateX(0)}100%{transform:translateX(1700px)}}
-@keyframes glHolo{to{transform:translateX(400px)}}
-@keyframes glSpark{0%,100%{opacity:.12}50%{opacity:1}}
 @keyframes giftGarlandIn{from{opacity:0;transform:translateY(-14px) scale(.985)}to{opacity:1;transform:none}}
-.gift-pull{--pull:0px;position:absolute;left:84%;top:66%;z-index:5;display:flex;flex-direction:column;align-items:center;width:44px;height:150px;margin:0;padding:0;border:0;background:transparent;color:inherit;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;transform-origin:50% 0;animation:giftPullSwing 2.9s ease-in-out infinite;will-change:transform}
+.gift-pull{--pull:0px;position:absolute;left:84%;top:70%;z-index:5;display:flex;flex-direction:column;align-items:center;width:44px;height:150px;margin:0;padding:0;border:0;background:transparent;color:inherit;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;transform-origin:50% 0;animation:giftPullSwing 2.9s ease-in-out infinite;will-change:transform}
 .gift-pull.is-dragging{animation:none;cursor:grabbing}
 .gift-pull.is-snapping{animation:giftPullSnap .7s cubic-bezier(.2,1.2,.3,1) both,giftPullSwing 2.9s .7s ease-in-out infinite}
 .gift-pull:focus-visible{outline:3px solid var(--focus);outline-offset:4px;border-radius:12px}
@@ -80,5 +74,10 @@
 @keyframes giftPullSwing{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
 @keyframes giftPullSnap{0%{transform:translateY(-12px) rotate(0)}40%{transform:translateY(4px) rotate(5deg)}70%{transform:translateY(-3px) rotate(-3deg)}100%{transform:translateY(0) rotate(0)}}
 @keyframes giftPullHint{0%{box-shadow:0 0 0 0 rgba(233,185,73,.6)}100%{box-shadow:0 0 0 16px rgba(233,185,73,0)}}
-@media (max-width:760px),(orientation:portrait){.home-garland{width:min(100%,560px);margin-bottom:2px}.gift-pull{left:82%;top:62%;height:120px}.gift-pull-cord{height:calc(44px + var(--pull))}.gift-pull-tag{width:27px;height:42px;font-size:14px}}
-@media (prefers-reduced-motion:reduce){.home-garland{animation:none}.gl-sheen,.gl-holo,.gl-spark{animation:none}.gl-spark{opacity:.7}.gift-pull{animation:none}.gift-pull-tag:after{animation:none}}
+@media (max-width:760px),(orientation:portrait){.home-garland{width:min(100%,560px);margin-bottom:2px}.gift-pull{left:82%;top:70%;height:120px}.gift-pull-cord{height:calc(44px + var(--pull))}.gift-pull-tag{width:27px;height:42px;font-size:14px}}
+@media (prefers-reduced-motion:reduce){.home-garland{animation:none}.gift-pull{animation:none}.gift-pull-tag:after{animation:none}}
+/* 2026-10-18: the revealed copy sits higher on the screen (not pinned to the top) */
+.home-copy--revealed{align-self:start;margin-top:clamp(40px,7vh,96px)}
+.app-shell[data-screen=home] .home-copy--revealed{align-self:start;margin-top:clamp(calc(40 * var(--presentation-unit)),7vh,calc(96 * var(--presentation-unit)))}
+@media (max-width:760px),(orientation:portrait){.home-copy--revealed{align-self:start;margin-top:clamp(28px,6dvh,64px)}}
+@media(max-width:760px)and (hover:none)and (pointer:coarse){.app-shell[data-screen=home] .home-screen.gift-cover.is-open[aria-labelledby=home-title]{place-content:start center}.app-shell[data-screen=home] .home-copy--revealed{align-self:start;margin-top:clamp(28px,6dvh,64px)}}
