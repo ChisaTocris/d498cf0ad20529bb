@@ -17,7 +17,7 @@ Error generating stack: `+a.message+`
 // ends and the tag, recycling the oldest settled pieces when the pool runs dry. Pieces land on a
 // height map (the pile) so they stack; the pointer is a soft ball: flying pieces steer around it,
 // settled pieces it touches hop away (each on its own trajectory) and land again.
-const Bm=Array.from({length:22},(c,r)=>({id:r,color:["#ff6f91","#ffb347","#ffe36e","#7bd8a8","#6fb7ff","#b48cff"][r%6],deep:["#c23a5c","#c97d1f","#c9a52a","#3f9a6e","#3f7fc9","#7a58c9"][r%6]}));
+const Bm=Array.from({length:22},(c,r)=>({id:r,color:["#ff6f91","#ffb347","#ffe36e","#7bd8a8","#6fb7ff","#b48cff"][Math.floor(r/3)%6],deep:["#c23a5c","#c97d1f","#c9a52a","#3f9a6e","#3f7fc9","#7a58c9"][Math.floor(r/3)%6]}));
 let giftConfettiNode=null;
 const giftConfettiRandom=(seed)=>{let t=seed>>>0;return()=>{t+=1831565813;let r=Math.imul(t^t>>>15,1|t);r^=r+Math.imul(r^r>>>7,61|r);return((r^r>>>14)>>>0)/4294967296}};
 const giftConfettiState={pieces:[],free:[],balloons:[],raf:0,last:0,started:0,pointer:{x:-1e4,y:-1e4,t:-1e4},radius:64,unit:1,vw:0,vh:0,gravity:2600,container:null,bound:false,idle:false,pile:null,pileStep:6,pileMax:0,seq:0,random:giftConfettiRandom(20261017)};
