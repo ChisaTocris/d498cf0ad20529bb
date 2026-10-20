@@ -113,3 +113,5 @@
 /* 2026-10-18 glint: a short iridescent streak travels along the lettering, left to right, then rests */
 .gl-glint{animation:glGlint 7.2s cubic-bezier(.3,0,.7,1) infinite}@keyframes glGlint{0%{transform:translateX(311px)}62%{transform:translateX(1149px)}100%{transform:translateX(1149px)}}
 @media (prefers-reduced-motion:reduce){.gl-glint{animation:none;opacity:0}}
+/* 2026-10-19: balloons from the box emerge from inside it (the container is clipped to the box silhouette at launch) */
+.gift-celebration--mouth{z-index:19}
