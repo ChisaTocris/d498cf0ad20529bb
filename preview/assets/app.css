@@ -115,3 +115,9 @@
 @media (prefers-reduced-motion:reduce){.gl-glint{animation:none;opacity:0}}
 /* 2026-10-19: balloons from the box emerge from inside it (the container is clipped to the box silhouette at launch) */
 .gift-celebration--mouth{z-index:19}
+/* 2026-10-19: the hover rule for the button switched its background from the gradient to a flat colour, and the
+   background transition cross-faded through transparent (a flash of paper). Hover/active keep a gradient and the
+   background is no longer transitioned. */
+.home-copy--revealed .primary-button{transition:transform .16s ease,box-shadow .16s ease}
+.home-copy--revealed .primary-button:hover:not(:disabled){background:linear-gradient(180deg,#c44d35 0%,#a3372a 55%,#862b1c 100%);transform:translateY(-2px);box-shadow:0 6px 0 #5a1a10,0 18px 32px rgba(92,38,22,.3),inset 0 1px 0 rgba(255,240,210,.35),inset 0 0 0 1px rgba(217,188,133,.5)}
+.home-copy--revealed .primary-button:active:not(:disabled){background:linear-gradient(180deg,#a83a28 0%,#8d2c1f 55%,#74221a 100%);transform:translateY(2px);box-shadow:0 2px 0 #5a1a10,0 8px 16px rgba(92,38,22,.22),inset 0 1px 0 rgba(255,240,210,.3),inset 0 0 0 1px rgba(217,188,133,.38)}
