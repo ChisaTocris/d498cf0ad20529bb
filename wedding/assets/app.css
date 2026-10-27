@@ -145,29 +145,38 @@
 @media (min-width:761px) and (orientation:landscape){.app-shell[data-screen=end-credits] .credits-photo-hint{top:calc(30 * var(--presentation-unit));left:calc(30 * var(--presentation-unit));padding:calc(11 * var(--presentation-unit)) calc(24 * var(--presentation-unit));font-size:calc(24 * var(--presentation-unit))}.app-shell[data-screen=end-credits] .credits-photo-open:after{bottom:calc(30 * var(--presentation-unit));padding:calc(12 * var(--presentation-unit)) calc(30 * var(--presentation-unit));font-size:calc(26 * var(--presentation-unit))}}
 @media (max-width:760px),(orientation:portrait){.credits-photo-hint{top:max(14px,env(safe-area-inset-top));left:max(16px,env(safe-area-inset-left))}}
 @media (prefers-reduced-motion:reduce){.credits-photo-open:after,.credits-photo-hint,.memory-progress-review{transition:none}}
-/* 2026-10-27 wedding road: the chapter steps become a flower-lined road; the couple, seen from behind, walks one stop per finished chapter */
-.memory-game-progress{flex-wrap:wrap;row-gap:8px}
-.wedding-road{position:relative;flex:0 0 100%;width:100%;height:clamp(104px,16vh,150px);height:clamp(104px,16svh,150px);overflow:hidden;border:1px solid rgba(160,120,80,.26);border-radius:16px;background:#f7e6d1;box-shadow:0 10px 22px rgba(90,50,30,.09),inset 0 1px 0 rgba(255,255,255,.55);letter-spacing:normal;isolation:isolate}
-.wedding-road-art,.wedding-road-art svg{position:absolute;inset:0;display:block;width:100%;height:100%}
-.wedding-road .wr-xi{font-family:"Noto Serif SC Subset",serif;font-weight:700}
-.wedding-road .wr-glow{opacity:0;transition:opacity .9s ease}
-.wedding-road .is-lit .wr-glow{opacity:1}
-.wedding-road-couple{position:absolute;top:0;left:0;z-index:1;transform-origin:50% 100%;pointer-events:none;will-change:transform}
-.wedding-road-couple svg{display:block;width:100%;height:100%;overflow:visible}
-.wedding-road-couple .wr-leg,.wedding-road-couple .wr-skirt,.wedding-road-couple .wr-veil,.wedding-road-couple .wr-arm-g{transform-box:fill-box;transform-origin:50% 0}
-.wedding-road-couple.is-walking .wr-leg-l{animation:wrStepA .5s ease-in-out infinite alternate}
-.wedding-road-couple.is-walking .wr-leg-r,.wedding-road-couple.is-walking .wr-arm-g{animation:wrStepB .5s ease-in-out infinite alternate}
-.wedding-road-couple.is-walking .wr-skirt{animation:wrSway .5s ease-in-out infinite alternate}
-.wedding-road-couple.is-walking .wr-veil{animation:wrSway .5s ease-in-out -.25s infinite alternate}
-.wedding-road-couple.is-walking .wr-bob{animation:wrBob .25s ease-in-out infinite alternate}
-@keyframes wrStepA{from{transform:rotate(8deg)}to{transform:rotate(-8deg)}}
-@keyframes wrStepB{from{transform:rotate(-8deg)}to{transform:rotate(8deg)}}
-@keyframes wrSway{from{transform:skewX(2.5deg)}to{transform:skewX(-2.5deg)}}
-@keyframes wrBob{from{transform:translateY(0)}to{transform:translateY(-1.6px)}}
-.app-shell[data-screen=matching] .memory-game-progress .wedding-road ol{position:absolute;inset:0;z-index:2;display:block;gap:0;margin:0;padding:0;pointer-events:none}
-.app-shell[data-screen=matching] .memory-game-progress .wedding-road li{position:absolute;width:20px;height:20px;border:1px solid #c9a46a;border-radius:50%;color:#8a6a4c;background:#fffaf0eb;box-shadow:0 2px 6px rgba(90,50,30,.16);font-size:10.5px;letter-spacing:0;pointer-events:auto;transform:translate(-50%,-50%)}
-.app-shell[data-screen=matching] .memory-game-progress .wedding-road li.is-current{border-color:#a53326;color:#fff8e9;background:#a53326;box-shadow:0 0 0 3px rgba(165,51,38,.16),0 2px 6px rgba(90,50,30,.18)}
-.app-shell[data-screen=matching] .memory-game-progress .wedding-road li.is-done{border-color:#b08a4a;color:#fff8e9;background:#b08a4a}
-.wedding-road-name{display:none}
-@media (prefers-reduced-motion:reduce){.wedding-road .wr-glow{transition:none}.wedding-road-couple.is-walking *{animation:none!important}}
-@media(min-width:761px)and (orientation:landscape){.app-shell[data-screen=matching] .memory-game-progress{min-height:calc(28 * var(--matching-unit))}.app-shell[data-screen=matching] .memory-game-progress .wedding-road{position:absolute;top:calc(208 * var(--matching-unit));left:calc((50% - 474 * var(--matching-unit)) / 2 - 280 * var(--matching-unit));flex:none;width:calc(560 * var(--matching-unit));height:calc(808 * var(--matching-unit));border-radius:calc(30 * var(--matching-unit))}.app-shell[data-screen=matching] .memory-game-progress .wedding-road li{width:max(22px,calc(38 * var(--matching-unit)));height:max(22px,calc(38 * var(--matching-unit)));font-size:max(11px,calc(18 * var(--matching-unit)))}.wedding-road-name{position:absolute;top:50%;display:block;padding:.18em .7em;border-radius:999px;color:#6b4a33;background:#fffaf0e0;box-shadow:0 1px 4px rgba(90,50,30,.12);font:500 max(12px,calc(21 * var(--matching-unit)))/1.35 "Noto Serif SC Subset",serif;letter-spacing:.14em;font-style:normal;white-space:nowrap;transform:translateY(-50%);pointer-events:none}.wedding-road-name[data-side="1"]{left:calc(100% + 6px)}.wedding-road-name[data-side="-1"]{right:calc(100% + 6px)}.wedding-road-name[data-side="0"]{top:auto;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%)}}
+/* 2026-10-27 wedding story: full-screen scene under the header, the album, the replay button */
+.wedding-story-screen{position:fixed;inset:0;z-index:5;overflow:hidden;background:#f7edd7}
+.ws-root{position:absolute;inset:0}
+.ws-canvas{position:absolute;inset:0;display:block}
+.ws-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.ws-replay{position:absolute;left:50%;bottom:max(24px,calc(16px + env(safe-area-inset-bottom)));z-index:20;min-height:44px;padding:10px 26px;border:1px solid rgba(165,51,38,.35);border-radius:999px;background:rgba(255,250,242,.94);color:#8f2a22;font:600 15px/1.2 "Noto Sans SC Subset",sans-serif;letter-spacing:.12em;box-shadow:0 8px 20px rgba(90,40,20,.15);cursor:pointer;transform:translateX(-50%);animation:wsIn .6s ease both}
+.ws-replay:focus-visible{outline:3px solid #a53326;outline-offset:3px}
+@keyframes wsIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+.app-shell[data-screen=matching] .app-header{background:transparent}
+.ws-book-stage{position:absolute;inset:0;overflow:hidden;opacity:0;background:#fbf8f2}
+.ws-table{position:absolute;inset:-2%;background:radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.9),rgba(255,255,255,0) 60%),repeating-linear-gradient(0deg,rgba(120,100,80,.035) 0 1px,transparent 1px 4px),repeating-linear-gradient(90deg,rgba(120,100,80,.03) 0 1px,transparent 1px 5px),#f7f1e6}
+.ws-table:after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,0) 55%,rgba(90,60,40,.16))}
+.ws-petal{position:absolute;width:18px;height:12px;border-radius:60% 40% 60% 40%;opacity:.85;box-shadow:inset -2px -2px 4px rgba(0,0,0,.08)}
+.ws-book{position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0;perspective:calc(var(--pw) * 5)}
+.ws-cover{position:absolute;left:calc(var(--pw) * -1 - 12px);top:calc(var(--ph) * -0.5 - 12px);width:calc(var(--pw) * 2 + 24px);height:calc(var(--ph) + 24px);border-radius:8px;background:linear-gradient(180deg,#b23a40,#9a2c34);box-shadow:0 26px 50px rgba(70,35,20,.28),0 4px 10px rgba(70,35,20,.2),inset 0 0 0 3px rgba(226,191,108,.55)}
+.ws-edge{position:absolute;top:calc(var(--ph) * -0.5 + 3px);width:8px;height:calc(var(--ph) - 6px);background:repeating-linear-gradient(90deg,#efe6d5 0 1px,#fbf6ec 1px 2px)}
+.ws-edge-l{left:calc(var(--pw) * -1 - 7px)}.ws-edge-r{left:calc(var(--pw) - 1px)}
+.ws-page,.ws-leaf{position:absolute;top:calc(var(--ph) * -0.5);width:var(--pw);height:var(--ph)}
+.ws-page{background:#fbf6ec;overflow:hidden}.ws-page-l{left:calc(var(--pw) * -1)}.ws-page-r{left:0}
+.ws-page-l:after,.ws-face:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,rgba(90,60,30,.16),rgba(90,60,30,0) 9%)}
+.ws-page-l:after{background:linear-gradient(270deg,rgba(90,60,30,.16),rgba(90,60,30,0) 9%)}
+.ws-leaf{left:0;transform-origin:0 50%;will-change:transform}
+.ws-face{position:absolute;inset:0;background:#fbf6ec;overflow:hidden}
+.ws-back{transform:scaleX(-1)}
+.ws-text{position:absolute;inset:0;width:100%;height:100%}
+.ws-shade{position:absolute;inset:0;z-index:2;pointer-events:none;background:linear-gradient(90deg,rgba(70,45,25,.28),rgba(70,45,25,.06) 40%,rgba(255,255,255,.22));opacity:var(--shade,0)}
+.ws-spine{position:absolute;left:-4px;top:calc(var(--ph) * -0.5);width:8px;height:var(--ph);z-index:600;background:linear-gradient(90deg,rgba(80,50,30,.18),rgba(80,50,30,0) 45%,rgba(80,50,30,0) 55%,rgba(80,50,30,.18));pointer-events:none}
+.ws-photo-page{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;padding:calc(var(--pw) * .085) calc(var(--pw) * .075) 0;box-sizing:border-box}
+.ws-photo-title{margin:0 0 calc(var(--pw) * .07);font:700 calc(var(--pw) * .1)/1.25 "Noto Serif SC Subset",serif;color:#a5302a;letter-spacing:.08em;text-indent:.08em}
+.ws-photo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:calc(var(--pw) * .04) calc(var(--pw) * .035);width:100%}
+.ws-photo{margin:0;padding:calc(var(--pw) * .012);background:#fff;transform:rotate(var(--tilt));box-shadow:0 2px 7px rgba(90,60,40,.2),0 0 calc(var(--pw) * .06) rgba(255,214,140,var(--glow,0))}
+.ws-photo img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;filter:blur(9px) saturate(.6)}
+.ws-final-page{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 10%;box-sizing:border-box;text-align:center}
+.ws-final-text{margin:0;white-space:pre-line;font:600 calc(var(--pw) * .085)/1.75 "Noto Serif SC Subset",serif;color:#5a2a20;letter-spacing:.1em;text-indent:.1em;opacity:0}
+.ws-final-sign{margin:calc(var(--pw) * .1) 0 0;font:400 calc(var(--pw) * .042)/1.5 "Noto Sans SC Subset",sans-serif;color:#8a6a55;letter-spacing:.14em;opacity:0}
