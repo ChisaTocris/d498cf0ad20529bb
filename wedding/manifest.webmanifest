@@ -1,0 +1,17 @@
+{
+  "name": "婚礼回忆册",
+  "short_name": "婚礼回忆册",
+  "description": "三章九张照片，翻开我们的故事与新人寄语。",
+  "lang": "zh-CN",
+  "start_url": "/d498cf0ad20529bb/wedding/",
+  "display": "standalone",
+  "background_color": "#f7edd7",
+  "theme_color": "#f7edd7",
+  "icons": [
+    {
+      "src": "/d498cf0ad20529bb/wedding/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
