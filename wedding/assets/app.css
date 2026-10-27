@@ -180,3 +180,10 @@
 .ws-final-page{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 10%;box-sizing:border-box;text-align:center}
 .ws-final-text{margin:0;white-space:pre-line;font:600 calc(var(--pw) * .085)/1.75 "Noto Serif SC Subset",serif;color:#5a2a20;letter-spacing:.1em;text-indent:.1em;opacity:0}
 .ws-final-sign{margin:calc(var(--pw) * .1) 0 0;font:400 calc(var(--pw) * .042)/1.5 "Noto Sans SC Subset",sans-serif;color:#8a6a55;letter-spacing:.14em;opacity:0}
+/* wedding 3d */
+.wedding3d-screen{position:fixed;inset:0;overflow:hidden;background:#1f0306}
+.wedding3d-root{position:absolute;inset:0}
+.wedding3d-sound{position:absolute;z-index:5;top:calc(12px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));display:flex;align-items:center;gap:.4em;font:inherit;font-family:"Noto Serif SC Subset","Songti SC",serif;font-size:13px;letter-spacing:.12em;color:#fbecd0;background:rgba(30,10,12,.42);border:1px solid rgba(255,230,190,.35);border-radius:999px;padding:.5em .95em;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);cursor:pointer}
+.wedding3d-sound svg{width:15px;height:15px}
+.wedding3d-sound:active{transform:scale(.97)}
+/* end wedding 3d */
