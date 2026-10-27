@@ -2704,7 +2704,8 @@ function createCover(eng) {
     const o = tapAt === null ? -1 : t - tapAt;
     const portrait = aspect < 0.9;
     // camera framing: the open letter fills ~70% of the height on landscape, ~70% of the width on portrait
-    const fitH = 1.6, fitW = (CARD_W + 0.42) / Math.max(0.3, aspect);
+    // on landscape screens leave room under the card for the 开启我们的故事 button
+    const fitH = portrait ? 1.6 : 1.8, fitW = (CARD_W + 0.42) / Math.max(0.3, aspect);
     const distCard = Math.max(fitH, fitW * (portrait ? 1.05 : 1)) / (2 * Math.tan(THREE.MathUtils.degToRad(18)));
     const distEnv = Math.max(EH * 2.3, (EW * 1.28) / Math.max(0.3, aspect)) / (2 * Math.tan(THREE.MathUtils.degToRad(18)));
     const pull = smoother(o < 0 ? 0 : clamp((o - 0.9) / 1.6, 0, 1));
@@ -2748,8 +2749,8 @@ function createCover(eng) {
       sp.setXYZ(i, x, y, z);
     }
     sp.needsUpdate = true; swag.geometry.computeVertexNormals();
-    // on a tall screen there is room under the swag: the ball hangs clear of it, above the card
-    ball.group.position.set(0, topY - (portrait ? 0.3 : 0.13) + (1 - dc) * 0.6 + Math.sin(t * 1.4) * 0.008, 0.3); ball.group.scale.setScalar(portrait ? 0.34 : 0.3); ball.group.rotation.z = Math.sin(t * 1.1) * 0.05; ball.update(t);
+    // the ball hangs from the lowest point of the swag (on a tall screen there is room for it to hang clear, above the card)
+    ball.group.position.set(0, topY - (portrait ? 0.3 : 0.23) + (1 - dc) * 0.6 + Math.sin(t * 1.4) * 0.008, 0.3); ball.group.scale.setScalar(portrait ? 0.34 : 0.3); ball.group.rotation.z = Math.sin(t * 1.1) * 0.05; ball.update(t);
     ball.group.visible = dc > 0.001; swag.visible = dc > 0.001;
     const cx = Math.max(CARD_W / 2 + 0.11, Math.min(halfW - 0.08, CARD_W / 2 + 0.3));
     couplets.forEach((c, i) => {
