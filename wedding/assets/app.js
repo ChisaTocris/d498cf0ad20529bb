@@ -1917,7 +1917,7 @@ const WS = {};
       book.layout(W, H); bookFrom();
     }
     // reduced motion: a few still scenes with soft fades, then the photo page and the last page
-    const RM = [[0, 4.6, 3.0], [4.6, 9.2, T.tOffice + 2.0], [9.2, 13.8, 28.0], [13.8, 18.4, 44.6]];
+    const RM = [[0, 4.6, 3.0], [4.6, 9.2, T.tOffice + 2.0], [9.2, 13.8, 30.0], [13.8, 18.4, 44.6]];
     function drawReduced(t) {
       last = t;
       if (t < 18.4) {
