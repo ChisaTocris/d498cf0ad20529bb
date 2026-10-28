@@ -29,14 +29,14 @@ function(__r,__e){// The whole experience: the envelope cover, then a timeline o
 const {createEngine:createEngine,pickQuality:pickQuality}=__r(2);
 const {createCover:createCover}=__r(15);
 const {createRibbon:createRibbon,RIBBON_DUR:RIBBON_DUR}=__r(19);
-const {createBookScene:createBookScene,BOOK_DUR:BOOK_DUR,BOOK_BEATS:BOOK_BEATS}=__r(24);
-const {createPixelStage:createPixelStage}=__r(26);
+const {createBookScene:createBookScene,BOOK_DUR:BOOK_DUR,BOOK_BEATS:BOOK_BEATS}=__r(25);
+const {createPixelStage:createPixelStage}=__r(27);
 const {createRunner:createRunner}=__r(20);
 const {coupleRunFrame:coupleRunFrame,RUN_FRAMES:RUN_FRAMES}=__r(22);
-const {Buf:Buf}=__r(21);
-const {createCampus:createCampus,CAMPUS_DUR:CAMPUS_DUR}=__r(27);
-const {createOffice:createOffice,OFFICE_DUR:OFFICE_DUR}=__r(28);
-const {createWedding:createWedding,WEDDING_DUR:WEDDING_DUR,WEDDING_BEATS:WEDDING_BEATS,WEDDING_MOMENTS:WEDDING_MOMENTS}=__r(29);
+const {Buf:Buf,artCompositor:artCompositor}=__r(21);
+const {createCampus:createCampus,CAMPUS_DUR:CAMPUS_DUR}=__r(28);
+const {createOffice:createOffice,OFFICE_DUR:OFFICE_DUR}=__r(29);
+const {createWedding:createWedding,WEDDING_DUR:WEDDING_DUR,WEDDING_BEATS:WEDDING_BEATS,WEDDING_MOMENTS:WEDDING_MOMENTS}=__r(30);
 
 const CSS = `
 .ws3{position:absolute;inset:0;overflow:hidden;background:#1f0306;font-family:"Noto Serif SC Subset","Songti SC",serif;color:#f6dca4;-webkit-tap-highlight-color:transparent;user-select:none}
@@ -104,13 +104,16 @@ function createStory3D(root, { photos = [], quality = null, onOpen = null, onSta
   // so the drawing code is already compiled when the chapter starts
   const REHEARSE = { campus: [1, 6, 12, 20], office: [1, 8, 15, 20], wedding: [1, 3.5, 7, 9, 12, 15.5, 19, 23.5, 27, 32, 38, 44, 49.5] };
   let scratch = null;
+  // rehearsal frames are drawn into a scratch buffer; the layers they use get their canvases made here, not on the
+  // first frame the chapter is on screen
+  const warmComp = (F, portrait) => { const c = artCompositor(F, { portrait }), layer = c.layer; c.layer = (b, x, y) => { b.asCanvas(); layer(b, x, y); }; return c; };
   const pixelBuilder = (id) => {
     let r = 0;
     return { calm: true, step(budget) {
       const t0 = performance.now();
       if (!px[id].prepare(budget)) return false;
       const [w, h] = stage.size; if (!scratch || scratch.w !== w || scratch.h !== h) scratch = new Buf(w, h);
-      while (r < REHEARSE[id].length) { if (performance.now() - t0 >= budget) return false; px[id].render(scratch, REHEARSE[id][r], { portrait: stage.portrait }); r += 1; }
+      while (r < REHEARSE[id].length) { if (performance.now() - t0 >= budget) return false; px[id].render(warmComp(scratch, stage.portrait), REHEARSE[id][r], { portrait: stage.portrait }); r += 1; }
       return true;
     } };
   };
@@ -4854,10 +4857,12 @@ function(__r,__e){// The couple running along the ribbon between chapters. They 
 // own canvas above the WebGL one) at a whole number of device pixels per art pixel, standing on the screen position
 // of their feet on the ribbon, so the pixels stay crisp while the camera follows them. Also: their shadows, the
 // outfit change while running (a golden line sweeps down; the new clothes appear above it), sparkles when they come
-// out of a node, and the part of them hidden behind a pearl that hangs in front of the ribbon.
+// out of a node, and the part of them hidden behind a pearl that hangs in front of the ribbon. The people are pixels;
+// the light (the glow along the golden line, the sparkles) is drawn smooth at screen resolution.
 const {Buf:Buf,C:C,BAYER:BAYER}=__r(21);
 const {coupleRunFrame:coupleRunFrame,RUN_FRAMES:RUN_FRAMES,COUPLE_W:COUPLE_W,COUPLE_H:COUPLE_H,ANCHOR:ANCHOR,runStrideOf:runStrideOf}=__r(22);
 const {hash2:hash2}=__r(23);
+const {glint:glint,softLight:softLight}=__r(24);
 
 const PAD = 26; // room around the sprite for sparkles
 const BW = COUPLE_W + PAD * 2, BH = COUPLE_H + PAD * 2;
@@ -4916,6 +4921,7 @@ function createRunner(parent) {
     F.clear(0);
     const ax = PAD + ANCHOR[0], ay = PAD + ANCHOR[1];
     const lift = Math.round((s.lift || 0) * st.dpr / st.s);
+    let sweepLine = null;
     // shadows on the ribbon stay on the ground while the body is in the air
     const sh = 1 - Math.min(1, lift / 14);
     if (sh > 0.05) { shadow(F, ax + 2, ay + 1, 9, 1.7, 0.42 * sh); shadow(F, ax + 17, ay + 3, 9, 1.7, 0.42 * sh); }
@@ -4929,30 +4935,38 @@ function createRunner(parent) {
       blitOver(F, b, PAD, top, 0, line);
       blitOver(F, a, PAD, top, line, COUPLE_H);
       if (s.sweep < 1) {
-        // the golden line across the figures, with a glint running along it
+        // the golden line across the figures (its glow and a glint running along it are drawn smooth, below)
         const Y = top + line; let x0 = BW, x1 = -1;
         for (const src of [a, b]) for (let i = 0; i < src.w; i += 1) for (let dj = -1; dj <= 1; dj += 1) { const j = line + dj; if (j < 0 || j >= src.h) continue; if (src.d[j * src.w + i] >>> 24) { x0 = Math.min(x0, PAD + i); x1 = Math.max(x1, PAD + i); } }
-        if (x1 >= x0) for (let x = x0 - 2; x <= x1 + 2; x += 1) { over(F.d, Y * BW + x, C('#fff2b0')); if (Y - 1 >= 0) over(F.d, (Y - 1) * BW + x, C('#ffd870', 160)); }
+        if (x1 >= x0) { for (let x = x0 - 2; x <= x1 + 2; x += 1) { over(F.d, Y * BW + x, C('#fff2b0')); if (Y - 1 >= 0) over(F.d, (Y - 1) * BW + x, C('#ffd870', 160)); } sweepLine = [x0 - 2, x1 + 2, Y]; }
       }
     } else blitOver(F, a, PAD, top);
-    // sparkles: four-point stars twinkling around them (on appearing, and during the outfit change)
-    const amt = Math.max(s.sparkle || 0, s.next && s.sweep > 0 && s.sweep < 1 ? 1 : 0);
-    if (amt > 0.01) {
-      const n = Math.round(26 * amt);
-      for (let i = 0; i < n; i += 1) {
-        const h1 = hash2(i, 31, 7), h2 = hash2(i, 32, 7), life = (s.t * (0.9 + h1) + h2) % 1;
-        const x = Math.round(PAD + 6 + h1 * (COUPLE_W - 8)), y = Math.round(top + COUPLE_H - 4 - life * (COUPLE_H + 10) + Math.sin(s.t * 3 + i) * 2);
-        if (x < 1 || y < 1 || x >= BW - 1 || y >= BH - 1) continue;
-        const c = C(i % 3 ? '#ffe9a0' : '#ffffff'), tw = Math.floor(s.t * 10 + i) % 4;
-        over(F.d, y * BW + x, c);
-        if (tw < 2) { over(F.d, y * BW + x - 1, C('#ffe9a0', 170)); over(F.d, y * BW + x + 1, C('#ffe9a0', 170)); over(F.d, (y - 1) * BW + x, C('#ffe9a0', 170)); over(F.d, (y + 1) * BW + x, C('#ffe9a0', 170)); }
-      }
-    }
     lg.putImageData(F.img, 0, 0);
     g.imageSmoothingEnabled = false;
     g.globalAlpha = Math.min(1, s.alpha);
     const S = st.s, X = Math.round(s.x * st.dpr - ax * S), Y = Math.round(s.y * st.dpr - ay * S);
     g.drawImage(low, 0, 0, BW, BH, X, Y, BW * S, BH * S);
+    // smooth light in the sprite's art units: a glow along the golden line with a glint running across it, and
+    // sparkles rising around them (on appearing, and during the outfit change)
+    g.save(); g.setTransform(S, 0, 0, S, X, Y);
+    if (sweepLine) {
+      const [x0, x1, ly] = sweepLine, gr = g.createLinearGradient(0, ly - 3.5, 0, ly + 3.5);
+      gr.addColorStop(0, 'rgba(255,214,120,0)'); gr.addColorStop(0.5, 'rgba(255,226,150,0.55)'); gr.addColorStop(1, 'rgba(255,214,120,0)');
+      g.globalCompositeOperation = 'lighter'; g.fillStyle = gr; g.fillRect(x0 - 3, ly - 3.5, x1 - x0 + 6, 7); g.globalCompositeOperation = 'source-over';
+      const gx = x0 + (x1 - x0) * ((s.t * 1.4) % 1);
+      softLight(g, gx, ly + 0.5, 5, '#fff0c0', 0.7); glint(g, gx, ly + 0.5, 1.6, '#fff4d0', 0.9);
+    }
+    const amt = Math.max(s.sparkle || 0, s.next && s.sweep > 0 && s.sweep < 1 ? 1 : 0);
+    if (amt > 0.01) {
+      const n = Math.round(14 * amt);
+      for (let i = 0; i < n; i += 1) {
+        const h1 = hash2(i, 31, 7), h2 = hash2(i, 32, 7), life = (s.t * (0.7 + h1 * 0.6) + h2) % 1;
+        const x = PAD + 4 + h1 * (COUPLE_W - 6) + Math.sin(s.t * 2.2 + i) * 2, y = top + COUPLE_H - 2 - life * (COUPLE_H + 8);
+        const k = amt * Math.sin(Math.PI * life) * (0.65 + 0.35 * Math.sin(s.t * 9 + i * 1.7));
+        glint(g, x, y, 0.9 + h2 * 0.9, i % 3 ? '#ffe6a0' : '#ffffff', k);
+      }
+    }
+    g.restore();
     g.globalAlpha = 1;
     // a pearl hanging in front of the ribbon hides the part of them behind it
     if (s.masks && s.masks.length) {
@@ -5128,12 +5142,21 @@ class Buf {
   brect(x, y, w, h, c, a = 1) { for (let j = Math.max(0, y | 0); j < Math.min(this.h, (y + h) | 0); j += 1) for (let i = Math.max(0, x | 0); i < Math.min(this.w, (x + w) | 0); i += 1) this.d[j * this.w + i] = blend(this.d[j * this.w + i], c, a); }
   map(fn) { const { w, h, d } = this; for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) { const i = y * w + x; const v = fn(d[i], x, y); if (v !== undefined) d[i] = v; } return this; }
   toCanvas(cv) { const c = cv || mkCanvas(this.w, this.h); c.getContext('2d').putImageData(this.img, 0, 0); return c; }
+  // the same pixels as a canvas, made once (for layers that never change after they are built)
+  asCanvas() { if (!this._cv) this._cv = this.toCanvas(); return this._cv; }
 }
 // blend colour c (with its own alpha) over u, times a
 function blend(u, c, a = 1) {
   const ca = ((c >>> 24) / 255) * a; if (ca >= 0.999) return c | 0xff000000; if (ca <= 0.001) return u;
-  const r = (c & 255) * ca + (u & 255) * (1 - ca), g = ((c >> 8) & 255) * ca + ((u >> 8) & 255) * (1 - ca), b = ((c >> 16) & 255) * ca + ((u >> 16) & 255) * (1 - ca);
-  return ((255 << 24) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0;
+  const ua = (u >>> 24) / 255;
+  if (ua >= 0.999) {
+    const r = (c & 255) * ca + (u & 255) * (1 - ca), g = ((c >> 8) & 255) * ca + ((u >> 8) & 255) * (1 - ca), b = ((c >> 16) & 255) * ca + ((u >> 16) & 255) * (1 - ca);
+    return ((255 << 24) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0;
+  }
+  // over a transparent or see-through pixel (the overlay buffers): keep the coverage, so it composites correctly later
+  const oa = ca + ua * (1 - ca), k = ua * (1 - ca);
+  const r = ((c & 255) * ca + (u & 255) * k) / oa, g = (((c >> 8) & 255) * ca + ((u >> 8) & 255) * k) / oa, b = (((c >> 16) & 255) * ca + ((u >> 16) & 255) * k) / oa;
+  return ((Math.round(oa * 255) << 24) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0;
 }
 // tint: [hex, amount] pushes a colour towards hex
 function tintC(v, tint) { const t = C(tint[0]), k = tint[1]; const r = (v & 255) * (1 - k) + (t & 255) * k, g = ((v >> 8) & 255) * (1 - k) + ((t >> 8) & 255) * k, b = ((v >> 16) & 255) * (1 - k) + ((t >> 16) & 255) * k; return ((v & 0xff000000) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0; }
@@ -5215,6 +5238,22 @@ const S = {
 
 // The display: one low-resolution canvas the scenes draw into, shown through a full-resolution canvas scaled by a whole
 // number of device pixels (crisp in every browser, no CSS image-rendering needed).
+// A compositor that draws a whole chapter frame into one buffer at art resolution (the pixel lab in Node, rehearsal
+// frames). The display compositor in stage.js has the same interface but draws layers at screen-pixel precision.
+//   fill(hex)                the background colour
+//   layer(buf, x, y)         a finished layer at art coordinates (fractions allowed: smooth scrolling on screen)
+//   pix(fn, offX, offY)      dynamic pixels: fn(F, bx, by) draws into a frame-sized buffer, where (bx, by) is the
+//                            whole-pixel part of the offset of the layer the content belongs to
+//   smooth(fn)               smooth effects at screen resolution: fn(g, B), a 2D context in art units (stage only)
+function artCompositor(F, { portrait = false } = {}) {
+  return {
+    w: F.w, h: F.h, portrait,
+    fill(hex) { F.clear(C(hex)); },
+    layer(b, x, y) { F.draw(b, Math.round(x), Math.round(y)); },
+    pix(fn, offX = 0, offY = 0) { fn(F, Math.round(offX), Math.round(offY)); },
+    smooth() {}, // smooth effects need a real canvas: left out of art-resolution frames
+  };
+}
 function createDisplay(parent, { targetH = 216, targetPortraitW = 162 } = {}) {
   const out = document.createElement('canvas');
   out.className = 'ws3-px';
@@ -5250,7 +5289,7 @@ function createDisplay(parent, { targetH = 216, targetPortraitW = 162 } = {}) {
   return { el: out, st, resize, present, get g() { return g; }, low };
 }
 
-__e.C=C;__e.CLEAR=CLEAR;__e.preparer=preparer;__e.hexToRgb=hexToRgb;__e.rgbToHex=rgbToHex;__e.mix=mix;__e.ramp=ramp;__e.BAYER=BAYER;__e.dith=dith;__e.Buf=Buf;__e.blend=blend;__e.mkCanvas=mkCanvas;__e.ctx2d=ctx2d;__e.Painter=Painter;__e.S=S;__e.createDisplay=createDisplay;
+__e.C=C;__e.CLEAR=CLEAR;__e.preparer=preparer;__e.hexToRgb=hexToRgb;__e.rgbToHex=rgbToHex;__e.mix=mix;__e.ramp=ramp;__e.BAYER=BAYER;__e.dith=dith;__e.Buf=Buf;__e.blend=blend;__e.mkCanvas=mkCanvas;__e.ctx2d=ctx2d;__e.Painter=Painter;__e.S=S;__e.artCompositor=artCompositor;__e.createDisplay=createDisplay;
 },
 /* src/px/people.js */
 function(__r,__e){// The couple as pixel sprites, drawn from a small skeleton so the walk has as many in-between frames as we like.
@@ -5292,7 +5331,7 @@ function legPose(B, p, keys = LEG) {
   return { th, kn, ft, knee: [kx, ky], ankle: [ax, ay], ext: ay + B.ankle };
 }
 // pose for a walk phase (0..1). Coordinates relative to the point on the ground below the hip; y up is negative.
-function walkPose(who, phase, { swing = 1, stride = 1, lean = 2.5 } = {}) {
+function walkPose(who, phase, { swing = 1, stride = 1, lean = 0.5 } = {}) {
   const B = BODY[who];
   const sc = (l) => ({ ...l, knee: [l.knee[0] * stride, l.knee[1]], ankle: [l.ankle[0] * stride, l.ankle[1]] });
   const L = sc(legPose(B, phase)), Rr = sc(legPose(B, phase + 0.5));
@@ -5313,8 +5352,9 @@ function walkPose(who, phase, { swing = 1, stride = 1, lean = 2.5 } = {}) {
     return { sh: [sh[0] + (side ? -0.6 : 0.3), sh[1] + 1.2], el: e, hand: h };
   };
   const arms = [arm(L.th, 0), arm(Rr.th, 1)]; // near arm swings against the near leg
-  const neck = [sh[0] + 0.6, sh[1] - B.neck];
-  const head = [neck[0] + 0.9, neck[1] - B.head + 0.4];
+  // an upright carriage: the head sits straight above the shoulders, not pushed forward
+  const neck = [sh[0] - 0.3, sh[1] - B.neck - 0.7];
+  const head = [neck[0] - 0.3, neck[1] - B.head + 0.3];
   return { who, hip: [0, hipY], sh, neck, head, legs, arms, lean: lean_ };
 }
 function standPose(who, { breathe = 0, armsFront = false } = {}) {
@@ -5330,15 +5370,16 @@ function strideOf(who, stride = 1) {
 }
 
 // ---------------------------------------------------------------- running (the ribbon between chapters)
-// one leg over its own cycle: stance 0..0.25 (the foot planted and sweeping back under the hip), then a high swing.
-// Each leg is in the air for most of its cycle, so the body is airborne twice per cycle between the stances.
+// one leg over its own cycle: a short stance 0..0.18 (the foot planted and sweeping back under the hip), then a
+// long, high swing. Each leg is in the air most of its cycle, so the body flies between the stances: long, easy
+// strides rather than quick little steps.
 const RUN = [
-  [0.0, 24, 16, 6], [0.07, 20, 29, 0], [0.14, 2, 16, -4], [0.25, -16, 12, -26],
-  [0.38, -22, 62, -38], [0.52, -2, 104, -30], [0.66, 30, 98, -14], [0.8, 44, 58, -2], [0.92, 34, 24, 6],
+  [0.0, 26, 12, 8], [0.06, 15.5, 19, 2], [0.12, -3.5, 11, -6], [0.18, -18, 10, -28], [0.3, -30, 40, -40],
+  [0.45, -14, 96, -30], [0.6, 26, 104, -16], [0.75, 50, 60, -2], [0.88, 44, 22, 6],
 ];
-const RUN_STANCE = 0.25;
+const RUN_STANCE = 0.18;
 // a running pose for a phase (0..1): upright chest, head over the shoulders, elbows bent, arms driving against legs
-function runPose(who, phase, { lean = 5 } = {}) {
+function runPose(who, phase, { lean = 3 } = {}) {
   const B = BODY[who];
   const L = legPose(B, phase, RUN), Rr = legPose(B, phase + 0.5, RUN);
   // the hip sits on the stance leg; between stances it flies on a low arc
@@ -5353,7 +5394,7 @@ function runPose(who, phase, { lean = 5 } = {}) {
     const k = (p - p0) / (p1 - p0);
     const h0 = p < 0.5 ? legPose(B, RUN_STANCE, RUN).ext : legPose(B, RUN_STANCE, RUN).ext;
     const h1 = legPose(B, 0, RUN).ext;
-    ext = h0 + (h1 - h0) * k + 1.6 * 4 * k * (1 - k);
+    ext = h0 + (h1 - h0) * k + 3.0 * 4 * k * (1 - k);
   }
   const hipY = -ext;
   const leg = (l) => {
@@ -5373,8 +5414,8 @@ function runPose(who, phase, { lean = 5 } = {}) {
     return { sh: [sh[0] + (side ? -0.6 : 0.3), sh[1] + 1.2], el: e, hand: h };
   };
   const arms = [arm(Rr.th, 0), arm(L.th, 1)];
-  const neck = [sh[0] + 0.15, sh[1] - B.neck];
-  const head = [neck[0] + 0.35, neck[1] - B.head + 0.4];
+  const neck = [sh[0] - 0.2, sh[1] - B.neck - 0.7];
+  const head = [neck[0] - 0.2, neck[1] - B.head + 0.3];
   return { who, hip: [0, hipY], sh, neck, head, legs, arms, lean: lean_ };
 }
 // how far the body travels per running cycle (sprite pixels): twice the stance foot's sweep, scaled to the cycle
@@ -5411,11 +5452,12 @@ function torsoShape(pose, w0, w1, extra = 0) {
   // a soft trapezoid from hips to shoulders, a little deeper at the chest
   const [hx, hy] = pose.hip, [sx, sy] = pose.sh, k = pose.lean;
   const fx = Math.cos(k), fy = Math.sin(k); // front direction ~ +x
+  // a straight back and square shoulders, the chest a little forward (no rounded, hunched shoulders)
   const back0 = [hx - w0 * 0.55, hy + 1], front0 = [hx + w0 * 0.45, hy + 1];
-  const backS = [sx - w1 * 0.55 - fy, sy + 0.5], frontS = [sx + w1 * 0.45 + 0.3, sy + 0.8];
-  const chest = [sx + w1 * 0.5 + 0.8 + extra, sy + 3.5], belly = [hx + w0 * 0.5, hy - 3];
-  const backMid = [hx - w0 * 0.62, hy - 5];
-  return S.poly([back0, backMid, backS, [sx - 0.5, sy - 0.6], frontS, chest, belly, front0]);
+  const backS = [sx - w1 * 0.55, sy + 0.2], frontS = [sx + w1 * 0.45 + 0.2, sy + 0.4];
+  const chest = [sx + w1 * 0.5 + 1.0 + extra, sy + 3.0], belly = [hx + w0 * 0.5, hy - 3];
+  const backMid = [hx - w0 * 0.57, hy - 5];
+  return S.poly([back0, backMid, backS, [sx - 0.9, sy - 0.7], frontS, chest, belly, front0]);
 }
 function legShape(l, r0, r1) { return S.union(S.taper(l.hip[0], l.hip[1], l.knee[0], l.knee[1], r0, (r0 + r1) / 2), S.taper(l.knee[0], l.knee[1], l.ankle[0], l.ankle[1], (r0 + r1) / 2, r1)); }
 function shoe(P, l, col, { heel = false, h = 1.6 } = {}) {
@@ -5766,12 +5808,239 @@ function shadowEllipse(b, cx, cy, rx, ry, a = 0.35, hex = '#1b1020') {
 
 __e.rng=rng;__e.hash2=hash2;__e.vnoise=vnoise;__e.fbm=fbm;__e.vnoise2=vnoise2;__e.fbm2=fbm2;__e.ditherPick=ditherPick;__e.vgrad=vgrad;__e.glow=glow;__e.cloud=cloud;__e.crown=crown;__e.trunk=trunk;__e.ridge=ridge;__e.shadowEllipse=shadowEllipse;
 },
+/* src/px/softfx.js */
+function(__r,__e){// Smooth effects drawn at screen resolution over the pixel art, not in pixels: fireworks, confetti, curling
+// streamers, two golden firebirds, petals, glints and soft light. Pixel art is kept for the people, the animals and
+// the scenery; light and flying paper look cheap and busy as blocky pixels, so they are drawn here with real curves,
+// gradients and additive light.
+// Every function is a pure function of time and draws on a 2D context in art units: B = { s, ox, oy } maps an art
+// pixel (x, y) to the device pixel (ox + s·x, oy + s·y), and the context's transform is that mapping on entry.
+const {hash2:hash2}=__r(23);
+
+const TAU = Math.PI * 2;
+const ease = (u) => u * u * (3 - 2 * u);
+const clamp01 = (x) => Math.max(0, Math.min(1, x));
+const base = (g, B) => g.setTransform(B.s, 0, 0, B.s, B.ox, B.oy);
+// art (x, y), rotated by (c, sn) = (cos, sin) and scaled by (fx, fy)
+const place = (g, B, x, y, c, sn, fx, fy) => g.setTransform(B.s * c * fx, B.s * sn * fx, -B.s * sn * fy, B.s * c * fy, B.ox + B.s * x, B.oy + B.s * y);
+
+const rgbCache = new Map();
+function rgb(hex) {
+  let v = rgbCache.get(hex);
+  if (!v) { const n = parseInt(hex.slice(1), 16); v = [(n >> 16) & 255, (n >> 8) & 255, n & 255]; rgbCache.set(hex, v); }
+  return v;
+}
+const rgba = (hex, a) => { const [r, g, b] = rgb(hex); return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, a)).toFixed(3)})`; };
+function shade(hex, k) { const [r, g, b] = rgb(hex); const f = (c) => Math.round(c * k).toString(16).padStart(2, '0'); return `#${f(r)}${f(g)}${f(b)}`; }
+
+// a soft round light; additive unless told otherwise
+function softLight(g, x, y, r, color, a, add = true) {
+  if (a <= 0.003 || r <= 0.01) return;
+  const gr = g.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, rgba(color, a)); gr.addColorStop(0.3, rgba(color, a * 0.5)); gr.addColorStop(0.65, rgba(color, a * 0.14)); gr.addColorStop(1, rgba(color, 0));
+  const op = g.globalCompositeOperation; if (add) g.globalCompositeOperation = 'lighter';
+  g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+  g.globalCompositeOperation = op;
+}
+// a wide, flat bloom of light that can whiten the whole frame
+function bloom(g, x, y, r, color, a) {
+  if (a <= 0.003) return;
+  const gr = g.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, rgba(color, a)); gr.addColorStop(0.45, rgba(color, a * 0.85)); gr.addColorStop(0.8, rgba(color, a * 0.3)); gr.addColorStop(1, rgba(color, 0));
+  g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+}
+// a glint: a soft dot with a thin four-point star, twinkling (k 0..1)
+function glint(g, x, y, size, color, k) {
+  if (k <= 0.01) return;
+  softLight(g, x, y, size * 2.2, color, 0.55 * k);
+  const op = g.globalCompositeOperation; g.globalCompositeOperation = 'lighter';
+  g.globalAlpha = k; g.fillStyle = '#ffffff';
+  const L = size * (1.2 + k), t = Math.max(0.12, size * 0.16);
+  g.beginPath(); g.moveTo(x - L, y); g.lineTo(x, y - t); g.lineTo(x + L, y); g.lineTo(x, y + t); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(x, y - L); g.lineTo(x + t, y); g.lineTo(x, y + L); g.lineTo(x - t, y); g.closePath(); g.fill();
+  g.globalAlpha = 1; g.globalCompositeOperation = op;
+}
+
+// ---------------- fireworks: a rising spark, a flash, then streaks of light that slow, droop and twinkle out
+function firework(g, t, t0, x, y, { cols = ['#ffd27a', '#fff2c8', '#ff9a6a'], n = 56, r = 44, seed = 1 } = {}) {
+  const a = t - t0; if (a < -0.9 || a > 3.6) return;
+  const op = g.globalCompositeOperation; g.globalCompositeOperation = 'lighter';
+  g.lineCap = 'round';
+  if (a < 0) {
+    const k = ease(1 + a / 0.9), yy = y + (1 - k) * 84, wob = Math.sin(a * 23 + seed) * 0.4;
+    const gr = g.createLinearGradient(x, yy, x, yy + 12);
+    gr.addColorStop(0, rgba('#fff2c8', 0.95)); gr.addColorStop(1, rgba('#ff9050', 0));
+    g.strokeStyle = gr; g.lineWidth = 0.7; g.beginPath(); g.moveTo(x + wob, yy); g.lineTo(x, yy + 12); g.stroke();
+    softLight(g, x + wob, yy, 3.2, '#ffd9a0', 0.55);
+    g.globalCompositeOperation = op; return;
+  }
+  if (a < 0.6) softLight(g, x, y, 12 + a * 40, '#fff1d6', 0.75 * (1 - a / 0.6));
+  const fade = 1 - clamp01((a - 1.2) / 1.9);
+  for (let i = 0; i < n; i += 1) {
+    const th = (i / n) * TAU + hash2(i, 1, seed) * 0.16, sp = r * (0.72 + hash2(i, 2, seed) * 0.42);
+    const pos = (aa) => { const d = sp * (1 - Math.exp(-aa * 2.7)); return [x + Math.cos(th) * d, y + Math.sin(th) * d + aa * aa * 4.5]; };
+    const [x1, y1] = pos(a), [x0, y0] = pos(Math.max(0, a - 0.16));
+    const tw = a > 1.1 ? 0.5 + 0.5 * Math.sin(a * 17 + i * 2.3) : 1;
+    const al = fade * tw; if (al < 0.02) continue;
+    const col = cols[i % cols.length];
+    g.globalAlpha = al * 0.5; g.strokeStyle = col; g.lineWidth = 0.6; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+    g.globalAlpha = al; g.fillStyle = col; g.beginPath(); g.arc(x1, y1, 0.62, 0, TAU); g.fill();
+  }
+  g.globalAlpha = 1; g.globalCompositeOperation = op;
+}
+
+// ---------------- confetti: paper flakes from two cannons at the bottom corners; they flip and spin as they fall
+const CONF = ['#e8475f', '#ffd25a', '#ffffff', '#f6a8c8', '#ffcf7a', '#ff8fa8', '#f4e6c8'];
+function confetti(g, B, t, t0, w, h, { n = 80 } = {}) {
+  const a = t - t0; if (a < 0 || a > 6.6) return;
+  for (let i = 0; i < n; i += 1) {
+    const side = i % 2 ? 1 : -1, h1 = hash2(i, 1, 7), h2 = hash2(i, 2, 7), h3 = hash2(i, 3, 7);
+    const age = a - h3 * 0.3; if (age < 0) continue;
+    const sp = (0.7 + h1 * 0.5) * h * 1.02, ang = -Math.PI / 2 + side * -(0.3 + h2 * 0.45);
+    const k = 1 - Math.exp(-age * 2.6);
+    let x = (side < 0 ? -4 : w + 4) + Math.cos(ang) * sp * k / 2.6, y = h + 4 + Math.sin(ang) * sp * k / 2.6;
+    y += Math.max(0, age - 0.5) * (9 + h1 * 8);
+    x += Math.sin(age * (1.8 + h2 * 2) + i) * 5 * Math.min(1, age);
+    const fade = 1 - clamp01((age - 4.8) / 1.6); if (fade <= 0) continue;
+    const spin = age * (3 + h2 * 4) + i, flip = Math.cos(age * (4 + h1 * 5) + i * 1.3);
+    const col = CONF[i % CONF.length];
+    place(g, B, x, y, Math.cos(spin), Math.sin(spin), 1, Math.max(0.1, Math.abs(flip)));
+    g.globalAlpha = fade; g.fillStyle = flip > 0 ? col : shade(col, 0.72);
+    g.fillRect(-1.2, -0.65, 2.4, 1.3);
+  }
+  g.globalAlpha = 1; base(g, B);
+}
+
+// ---------------- streamers: long paper ribbons thrown up from both sides; they twist (showing their back, darker)
+// and curl as they flutter down
+const STRM = ['#d81f3a', '#f2c45c', '#ff8aa8', '#fff4ea', '#e0a640', '#ffd0dc'];
+function streamers(g, t, t0, w, h, { n = 10 } = {}) {
+  const a = t - t0; if (a < 0 || a > 7) return;
+  const P = 26;
+  for (let i = 0; i < n; i += 1) {
+    const side = i % 2 ? 1 : -1, h1 = hash2(i, 4, 3), h2 = hash2(i, 5, 3), age = a - h2 * 0.6; if (age < 0) continue;
+    const fade = 1 - clamp01((age - 5.2) / 1.4); if (fade <= 0) continue;
+    const k = 1 - Math.exp(-age * 2.1);
+    const hx = (side < 0 ? 4 : w - 4) - side * w * (0.16 + h1 * 0.3) * k;
+    const hy = h - h * (0.62 + h2 * 0.3) * k + Math.max(0, age - 0.9) * (9 + h1 * 5);
+    const len = 30 + h1 * 22, wid = 2.3 + h2 * 0.8, col = STRM[i % STRM.length], back = shade(col, 0.66);
+    // centre line from the head down, curling more towards the tail
+    const pts = [];
+    for (let j = 0; j <= P; j += 1) {
+      const u = j / P;
+      pts.push([hx + side * u * 9 * k + Math.sin(u * 8 + age * 3.2 + i) * 5.5 * u, hy + u * len * 0.88 + Math.cos(u * 6 + age * 2.4 + i) * 1.5 * u]);
+    }
+    g.globalAlpha = fade;
+    for (let j = 0; j < P; j += 1) {
+      const [x0, y0] = pts[j], [x1, y1] = pts[j + 1];
+      const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      const tw0 = Math.cos((j / P) * 7 + age * 4.5 + i), tw1 = Math.cos(((j + 1) / P) * 7 + age * 4.5 + i);
+      const w0 = wid * Math.max(0.12, Math.abs(tw0)) / 2, w1 = wid * Math.max(0.12, Math.abs(tw1)) / 2;
+      g.fillStyle = tw0 + tw1 > 0 ? col : back;
+      g.beginPath(); g.moveTo(x0 + nx * w0, y0 + ny * w0); g.lineTo(x1 + nx * w1, y1 + ny * w1); g.lineTo(x1 - nx * w1, y1 - ny * w1); g.lineTo(x0 - nx * w0, y0 - ny * w0); g.closePath(); g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+}
+
+// ---------------- two golden firebirds (the phoenixes): birds of light with flapping wings and long trailing tails
+// path(tt) gives the bird's position at time tt (art units); drawn additively
+function firebird(g, path, t, { alpha = 1, warm = 0 } = {}) {
+  if (alpha <= 0.01) return;
+  const op = g.globalCompositeOperation; g.globalCompositeOperation = 'lighter';
+  const N = 26, DT = 0.032, pts = [];
+  for (let j = 0; j <= N; j += 1) pts.push(path(t - j * DT));
+  const [hx, hy] = pts[0], [qx, qy] = pts[2];
+  const hd = Math.atan2(hy - qy, hx - qx), ch = Math.cos(hd), sh = Math.sin(hd);
+  const outer = warm ? '#ff6a3a' : '#ff8a30', mid = warm ? '#ff9a5a' : '#ffb347', core = '#fff1c8';
+  // the body's tail of light: three widths, wide and faint to narrow and bright
+  for (const [wk, col, al] of [[3.2, outer, 0.13], [1.6, mid, 0.32], [0.6, core, 0.75]]) {
+    for (let j = 0; j < N; j += 1) {
+      const [x0, y0] = pts[j], [x1, y1] = pts[j + 1];
+      const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      const u0 = j / N, u1 = (j + 1) / N, w0 = wk * (3.2 * Math.pow(1 - u0, 0.8) + 0.25), w1 = wk * (3.2 * Math.pow(1 - u1, 0.8) + 0.25);
+      g.globalAlpha = alpha * al * (1 - u0 * 0.85);
+      g.fillStyle = col;
+      g.beginPath(); g.moveTo(x0 + nx * w0 * 0.5, y0 + ny * w0 * 0.5); g.lineTo(x1 + nx * w1 * 0.5, y1 + ny * w1 * 0.5); g.lineTo(x1 - nx * w1 * 0.5, y1 - ny * w1 * 0.5); g.lineTo(x0 - nx * w0 * 0.5, y0 - ny * w0 * 0.5); g.closePath(); g.fill();
+    }
+  }
+  // two long tail plumes swaying behind, fading along their length
+  g.lineCap = 'round';
+  for (let p = 0; p < 2; p += 1) {
+    let px = 0, py = 0;
+    for (let j = 0; j <= N; j += 1) {
+      const [x, y] = pts[j]; const [xa, ya] = pts[Math.max(0, j - 1)], [xb, yb] = pts[Math.min(N, j + 1)];
+      const dx = xb - xa, dy = yb - ya, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      const off = Math.sin(j * 0.3 - t * 4 + p * Math.PI) * (j / N) * 5;
+      const X = x + nx * off, Y = y + ny * off;
+      if (j > 0) { g.globalAlpha = alpha * 0.4 * (1 - j / N); g.strokeStyle = mid; g.lineWidth = 0.55; g.beginPath(); g.moveTo(px, py); g.lineTo(X, Y); g.stroke(); }
+      px = X; py = Y;
+    }
+  }
+  // wings, seen from the side: both beat up and down together (the far one a little smaller)
+  const flap = Math.sin(t * 7 + warm * 1.3);
+  const lx = (u, v) => hx + ch * u - sh * v, ly = (u, v) => hy + sh * u + ch * v;
+  const up = ch >= 0 ? -1 : 1; // the screen's "up" on the bird's side axis
+  for (const [k, aMul] of [[0.75, 0.6], [1, 1]]) {
+    const v = up * k * (2 + 8 * (0.35 + 0.65 * flap));
+    g.beginPath(); g.moveTo(lx(2, 0), ly(2, 0)); g.quadraticCurveTo(lx(0.5, v * 1.05), ly(0.5, v * 1.05), lx(-3, v), ly(-3, v)); g.quadraticCurveTo(lx(-2.2, v * 0.4), ly(-2.2, v * 0.4), lx(-3.5, 0), ly(-3.5, 0)); g.closePath();
+    g.globalAlpha = alpha * 0.55 * aMul; g.fillStyle = mid; g.fill();
+    g.globalAlpha = alpha * 0.8 * aMul; g.strokeStyle = core; g.lineWidth = 0.45; g.stroke();
+  }
+  g.globalAlpha = 1;
+  // the head: a bright core in a warm halo
+  softLight(g, hx, hy, 9, mid, 0.55 * alpha);
+  softLight(g, hx, hy, 3, '#ffffff', 0.85 * alpha);
+  // sparks shed from the tail
+  for (let j = 0; j < 8; j += 1) {
+    const life = (t * 0.9 + hash2(j, 41, warm + 1)) % 1, src = pts[Math.min(N, Math.floor(life * N))];
+    const x = src[0] + (hash2(j, 42, warm + 1) - 0.5) * 6, y = src[1] + life * 9;
+    glint(g, x, y, 0.9, '#ffd27a', alpha * (1 - life) * (0.5 + 0.5 * Math.sin(t * 13 + j)));
+  }
+  g.globalCompositeOperation = op;
+}
+
+// ---------------- petals: soft petals tumbling down on the wind; density 1 fills the frame
+const PET = ['#ffd6e2', '#f7a8c0', '#fff6f8', '#f06a8e', '#ffc2d2', '#e85a7e'];
+function petals(g, B, t, w, h, density, { seed = 1, wind = 1 } = {}) {
+  if (density <= 0.001) return;
+  const W = w + 40, H = h + 40;
+  const n = Math.min(420, Math.round(density * (w * h) / 160));
+  for (let i = 0; i < n; i += 1) {
+    // where a petal starts and how fast it falls come from different hashes, or the petals bunch up over time
+    const h1 = hash2(i, 11, seed), h2 = hash2(i, 12, seed), h3 = hash2(i, 13, seed), h4 = hash2(i, 14, seed), h5 = hash2(i, 15, seed);
+    const sp = 9 + h4 * 14, drift = (6 + h5 * 12) * wind;
+    const x = (((h1 * W - t * drift + Math.sin(t * (0.8 + h3) + i) * 6) % W) + W) % W - 20, y = ((h2 * H + t * sp) % H) - 20;
+    const rot = t * (0.8 + h3 * 1.6) + i, flut = Math.cos(t * (2.5 + h1 * 2.5) + i * 1.7);
+    const col = PET[i % PET.length];
+    place(g, B, x, y, Math.cos(rot), Math.sin(rot), 1, Math.max(0.18, Math.abs(flut)));
+    g.fillStyle = flut > 0 ? col : shade(col, 0.82);
+    g.beginPath(); g.ellipse(0, 0, 1.25 + h3 * 0.5, 0.8 + h1 * 0.3, 0, 0, TAU); g.fill();
+  }
+  // near petals: fewer, bigger, faster, with a light edge
+  const m = Math.round(density * density * (w * h) / 2600);
+  for (let i = 0; i < m; i += 1) {
+    const h1 = hash2(i, 21, seed), h2 = hash2(i, 22, seed), h3 = hash2(i, 23, seed), h4 = hash2(i, 24, seed);
+    const x = (((h1 * W - t * (20 + h3 * 18) * wind) % W) + W) % W - 20, y = ((h2 * H + t * (24 + h4 * 16)) % H) - 20;
+    const rot = t * (1.1 + h2) + i * 2, flut = Math.cos(t * (2 + h2 * 2) + i);
+    const col = PET[(i + 2) % PET.length];
+    place(g, B, x, y, Math.cos(rot), Math.sin(rot), 1, Math.max(0.2, Math.abs(flut)));
+    g.globalAlpha = 0.92; g.fillStyle = flut > 0 ? col : shade(col, 0.8);
+    g.beginPath(); g.ellipse(0, 0, 3.4, 2.1, 0, 0, TAU); g.fill();
+    g.globalAlpha = 0.5; g.fillStyle = '#ffffff';
+    g.beginPath(); g.ellipse(-0.9, -0.5, 1.6, 0.8, 0, 0, TAU); g.fill();
+  }
+  g.globalAlpha = 1; base(g, B);
+}
+
+__e.softLight=softLight;__e.bloom=bloom;__e.glint=glint;__e.firework=firework;__e.confetti=confetti;__e.streamers=streamers;__e.firebird=firebird;__e.petals=petals;
+},
 /* src/bookscene.js */
 function(__r,__e){// The album chapter: a thick hardcover album open on a small round table, seen from the front and above (the spine
 // upright in the middle of the frame, the pages arching up out of the gutter), in warm sunset light with a few rose
 // petals on the lace cloth. The book itself (pages, turning, photos) is book.js.
 const THREE=__r(3);
-const {createBook:createBook,BOOK_DUR:BOOK_DUR,BOOK_BEATS:BOOK_BEATS,BOOK_SCHEDULE:BOOK_SCHEDULE}=__r(25);
+const {createBook:createBook,BOOK_DUR:BOOK_DUR,BOOK_BEATS:BOOK_BEATS,BOOK_SCHEDULE:BOOK_SCHEDULE}=__r(26);
 const {clamp:clamp,lerp:lerp,sstep:sstep,smoother:smoother,rng:rng}=__r(16);
 
 __e.BOOK_DUR=BOOK_DUR;__e.BOOK_BEATS=BOOK_BEATS;__e.BOOK_SCHEDULE=BOOK_SCHEDULE;
@@ -6014,16 +6283,49 @@ function createBook({ photos = [] } = {}) {
   const blankTex = texOf(paperCanvas(384, 518, 5).c);
   const faceCache = new Map();
   const faceTex = (key, make) => { if (!faceCache.has(key)) faceCache.set(key, texOf(make())); return faceCache.get(key); };
-  let photoCanvasTex = null, photoBlurKey = '';
-  let lastTex = null, lastAlpha = -1;
+  // the photo page: three versions (blurred, half, sharp) mixed per photo in the shader; the last page: without and
+  // with its words, mixed by one value. Nothing is redrawn or re-uploaded while the photos come into focus.
+  const photoTex = [1, 0.35, 0].map((b) => texOf(photoFace(images, Array(9).fill(b))));
+  let photosReady = false;
+  const redrawPhotos = () => { if (photosReady || !images.every((im) => im.complete && im.naturalWidth)) return; photosReady = true; [1, 0.35, 0].forEach((b, n) => { photoTex[n].image = photoFace(images, Array(9).fill(b)); photoTex[n].needsUpdate = true; }); };
+  // as soon as the photos are decoded (normally while the invitation is still on screen)
+  Promise.all(images.map((im) => (im.decode ? im.decode() : Promise.resolve()).catch(() => {}))).then(redrawPhotos);
+  const sharpU = { value: Array(9).fill(0) }, lastU = { value: 0 };
+  const lastTex = [texOf(lastFace(0)), texOf(lastFace(1))];
   function frontTex(k) {
     const lf = leaves[k];
     if (lf.kind === 'diary') return faceTex('d' + lf.i + 'f', () => diaryFace(lf.i, 0));
     if (lf.kind === 'toPhoto') return faceTex('d8f', () => diaryFace(8, 0));
-    if (lf.kind === 'photo') return photoCanvasTex || (photoCanvasTex = texOf(photoFace(images, Array(9).fill(1))));
-    if (lf.kind === 'last') return lastTex || (lastTex = texOf(lastFace(0)));
+    if (lf.kind === 'photo') return photoTex[0];
+    if (lf.kind === 'last') return lastTex[0];
     return blankTex;
   }
+  // grid of the photo page (canvas pixels, 768 x 1036): which photo a texel belongs to
+  const PHOTO_GRID = 'float px = vMapUv.x * 768.0, py = (1.0 - vMapUv.y) * 1036.0; int col = int(clamp(floor((px - 38.0 + 17.0) / 242.0), 0.0, 2.0)); int row = int(clamp(floor((py - 120.0 + 26.0) / 312.0), 0.0, 2.0)); float s = uSharp[row * 3 + col];';
+  const photoMat = (map) => {
+    const m = new THREE.MeshStandardMaterial({ map, roughness: 0.92, side: THREE.FrontSide });
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uMid = { value: photoTex[1] }; sh.uniforms.uSharpMap = { value: photoTex[2] }; sh.uniforms.uSharp = sharpU;
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D uMid, uSharpMap; uniform float uSharp[9];')
+        .replace('#include <map_fragment>', `#ifdef USE_MAP
+          ${PHOTO_GRID}
+          vec4 c0 = texture2D(map, vMapUv), c1 = texture2D(uMid, vMapUv), c2 = texture2D(uSharpMap, vMapUv);
+          diffuseColor *= s < 0.5 ? mix(c0, c1, s * 2.0) : mix(c1, c2, s * 2.0 - 1.0);
+          #endif`);
+    };
+    return m;
+  };
+  const lastMat = (map) => {
+    const m = new THREE.MeshStandardMaterial({ map, roughness: 0.92, side: THREE.FrontSide });
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uWords = { value: lastTex[1] }; sh.uniforms.uA = lastU;
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D uWords; uniform float uA;')
+        .replace('#include <map_fragment>', `#ifdef USE_MAP
+          diffuseColor *= mix(texture2D(map, vMapUv), texture2D(uWords, vMapUv), uA);
+          #endif`);
+    };
+    return m;
+  };
   function backTex(k) {
     const lf = leaves[k];
     if (lf.kind === 'diary') return faceTex('d' + lf.i + 'b', () => diaryFace(lf.i, 1));
@@ -6039,7 +6341,8 @@ function createBook({ photos = [] } = {}) {
     // the back face: mirrored u so the texture reads correctly once the page has turned
     const buv = back.attributes.uv; for (let i = 0; i < buv.count; i += 1) buv.setX(i, 1 - buv.getX(i));
     const idx = back.index.array; for (let i = 0; i < idx.length; i += 3) { const tmp = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = tmp; }
-    const front = new THREE.Mesh(geo, paperMat(frontTex(k))), backM = new THREE.Mesh(back, paperMat(backTex(k)));
+    const fm = leaves[k].kind === 'photo' ? photoMat(frontTex(k)) : leaves[k].kind === 'last' ? lastMat(frontTex(k)) : paperMat(frontTex(k));
+    const front = new THREE.Mesh(geo, fm), backM = new THREE.Mesh(back, paperMat(backTex(k)));
     front.castShadow = backM.castShadow = true; front.receiveShadow = backM.receiveShadow = true;
     group.add(front, backM);
     sheets.push({ front, back: backM, rest: Float32Array.from(geo.attributes.position.array) });
@@ -6075,36 +6378,41 @@ function createBook({ photos = [] } = {}) {
   group.rotation.x = -Math.PI / 2;
   const holder = new THREE.Group(); holder.add(group); group.position.set(0, 0, 0);
 
-  // page curl: fold line through (f, 0) tilted by th; the part beyond it rolls over a cylinder of radius r
-  const tmp = new THREE.Vector3();
+  // page turn: the leaf turns about the spine and bends as it goes. While it is lifted the outer edge leads, the
+  // bottom-right corner most (as a hand turns it); while it falls over the edge trails; it lands flat on the left.
+  // Every point keeps its distance along the page (the sheet bends, it does not stretch).
+  const NX = SEGX + 1, NY = SEGY + 1;
+  const xs = new Float32Array(NX), zs = new Float32Array(NX);
   function curl(sheet, P, stackL, stackR) {
     const pos = sheet.front.geometry.attributes.position, pos2 = sheet.back.geometry.attributes.position, rest = sheet.rest;
     const p = clamp(P, 0, 1);
-    // the fold line starts just outside the bottom-right corner, tilted so that corner lifts first,
-    // sweeps to the spine and straightens as the sheet goes over
-    const e = smoother(p);
-    const th = 0.58 * (1 - e) + 0.03;
-    const f = lerp(PW + 0.004, -0.03, e);
-    const r = lerp(0.03, 0.012, p) + 0.005;
-    const nx = Math.cos(th), ny = -Math.sin(th);
-    for (let i = 0; i < pos.count; i += 1) {
-      const u = rest[i * 3], v = rest[i * 3 + 1];
-      const s = (u - f) * nx + v * ny;
-      let x = u, y = v, z = 0;
-      if (p >= 0.999) { x = -u; y = v; z = 0; }
-      else if (s > 0) {
-        const fx = u - s * nx, fy = v - s * ny;
-        if (s < Math.PI * r) { const a = s / r; x = fx + nx * r * Math.sin(a); y = fy + ny * r * Math.sin(a); z = r * (1 - Math.cos(a)); }
-        else { const back = s - Math.PI * r; x = fx - nx * back; y = fy - ny * back; z = 2 * r; }
+    const A = 0.5 - 0.5 * Math.cos(Math.PI * p); // 0 → 1 with a soft start and a soft landing
+    const alpha = Math.PI * A;
+    const lift = p < 0.55 ? Math.sin(Math.PI * (p / 0.55)) : 0;
+    const fall = p > 0.4 ? Math.sin(Math.PI * Math.min(1, (p - 0.4) / 0.6)) : 0;
+    const beta = 1.05 * lift - 0.5 * fall;
+    // the root rides from the top of the right stack to the top of the left one
+    const zP = lerp(stackR, stackL, (1 - Math.cos(alpha)) / 2);
+    // resting pages follow the gutter; a turning one leaves it and returns to it
+    const gw = 1 - Math.sin(Math.PI * A);
+    const H = Math.max(0, zP - 0.0034);
+    for (let j = 0; j < NY; j += 1) {
+      const v = rest[(j * NX) * 3 + 1];
+      const corner = beta > 0 ? 1 + 1.15 * (1 - v / PH) : 1;
+      let x = 0, z = 0, uPrev = 0;
+      for (let i = 0; i < NX; i += 1) {
+        const u = rest[(j * NX + i) * 3];
+        if (i > 0) {
+          const um = (u + uPrev) / 2, w = (um / PW) * (um / PW);
+          const th = alpha + beta * corner * w;
+          x += Math.cos(th) * (u - uPrev); z += Math.sin(th) * (u - uPrev);
+        }
+        xs[i] = x; zs[i] = z; uPrev = u;
       }
-      // as the turn completes the whole sheet settles onto the left stack
-      const settle = sstep(0.82, 1.0, p);
-      if (p > 0 && p < 0.999) z *= 1 - settle * 0.9;
-      const zBase = lerp(stackR, stackL, sstep(0.0, 1.0, p));
-      // settled pages follow the gutter; a page in mid-turn is lifted clear of it
-      const gw = p <= 0 || p >= 0.999 ? 1 : 1 - Math.sin(Math.PI * Math.min(1, p * 1.1));
-      const gz = gut(x, Math.max(0, zBase - 0.0034)) * gw;
-      pos.setXYZ(i, x, y, z + zBase + gz); pos2.setXYZ(i, x, y, z + zBase + gz - 0.0004);
+      for (let i = 0; i < NX; i += 1) {
+        const k = j * NX + i, X = xs[i], Z = zP + zs[i] + gut(X, H) * gw;
+        pos.setXYZ(k, X, v, Z); pos2.setXYZ(k, X, v, Z);
+      }
     }
     pos.needsUpdate = true; pos2.needsUpdate = true;
     sheet.front.geometry.computeVertexNormals(); sheet.back.geometry.computeVertexNormals();
@@ -6122,20 +6430,21 @@ function createBook({ photos = [] } = {}) {
     const rightH = (NL - turned) * LEAF, leftH = turned * LEAF;
     setSlab(rightBlock, Math.max(1e-4, rightH * 0.9), base); setSlab(leftBlock, Math.max(1e-4, leftH * 0.9 + 1e-4), base);
     leftBlock.visible = cv > 0.5;
+    let topRight = NL - 1; for (let k = 0; k < NL; k += 1) if (prog[k] <= 0) { topRight = k; break; }
     for (let k = 0; k < NL; k += 1) {
       const sh = sheets[k];
-      const visibleNow = k >= turned - 1 && k <= turned + 1; // the two facing pages and the one in motion
+      // the leaves in motion, the page on top of the right stack and the page on top of the left one
+      const visibleNow = (prog[k] > 0 && prog[k] < 1) || k === topRight || k === turned - 1;
       sh.front.visible = sh.back.visible = visibleNow && cv > 0.02;
       if (!sh.front.visible) continue;
       const stackR = base + (NL - k) * LEAF + 0.0004, stackL = base + (k + 1) * LEAF + 0.0004;
       curl(sh, prog[k], stackL, stackR);
     }
-    // the photos sharpen one by one; refresh the canvas only when the blur state changes
-    const blurs = Array.from({ length: 9 }, (_, i) => 1 - smoother(clamp((tb - (S.photo0 + i * S.photoStep)) / 0.95, 0, 1)));
-    const key = blurs.map((b) => b.toFixed(2)).join(',');
-    if (photoCanvasTex && key !== photoBlurKey && tb > S.photoLand - 2 && tb < S.photoTurn[0] + S.photoTurn[1]) { photoBlurKey = key; photoCanvasTex.image = photoFace(images, blurs); photoCanvasTex.needsUpdate = true; }
-    const la = clamp((tb - S.textAt) / 2.2, 0, 1);
-    if (lastTex && Math.abs(la - lastAlpha) > 0.02) { lastAlpha = la; lastTex.image = lastFace(smoother(la)); lastTex.needsUpdate = true; }
+    // the photos come into focus one by one; the last words fade in
+    for (let i = 0; i < 9; i += 1) sharpU.value[i] = smoother(clamp((tb - (S.photo0 + i * S.photoStep)) / 0.95, 0, 1));
+    lastU.value = smoother(clamp((tb - S.textAt) / 2.2, 0, 1));
+    // once the photos have loaded, draw the three versions of the photo page again with them
+    redrawPhotos();
     return { cover: cv, turned };
   }
   update(0);
@@ -6145,23 +6454,69 @@ function createBook({ photos = [] } = {}) {
 __e.BOOK_SCHEDULE=BOOK_SCHEDULE;__e.BOOK_DUR=BOOK_DUR;__e.BOOK_BEATS=BOOK_BEATS;__e.GUTTER=GUTTER;__e.createBook=createBook;
 },
 /* src/px/stage.js */
-function(__r,__e){// The pixel stage: one canvas laid over the 3D canvas; a chapter draws its low-resolution frame into a buffer, which is
-// shown scaled by a whole number of device pixels. mosaic > 1 shows coarser blocks (used for the dive transitions).
-const {Buf:Buf,createDisplay:createDisplay}=__r(21);
+function(__r,__e){// The pixel stage: one canvas laid over the 3D canvas. A chapter frame is put together on it at screen resolution:
+// the finished background layers are drawn as canvases at screen-pixel precision (so parallax scrolling is smooth
+// instead of jumping a whole art pixel, several screen pixels, at a time), and the moving things are drawn into a
+// small transparent buffer at art resolution and laid over them at the right moment. Every art pixel stays a crisp
+// square of the same number of screen pixels. Light and flying paper are drawn smooth, at screen resolution, on top
+// (softfx.js). mosaic > 1 shows coarser blocks (used for the dive transitions).
+const {Buf:Buf,createDisplay:createDisplay,mkCanvas:mkCanvas}=__r(21);
 
 function createPixelStage(parent) {
   const disp = createDisplay(parent);
+  const og = disp.el.getContext('2d');
   let F = new Buf(1, 1);
   let shown = null;
+  const tmp = mkCanvas(1, 1);
+  const R = {
+    w: 1, h: 1, portrait: false,
+    fill(hex) { og.fillStyle = hex; og.fillRect(0, 0, disp.st.devW, disp.st.devH); },
+    layer(b, x, y) {
+      const st = disp.st, s = st.s, dx = st.ox + Math.round(x * s), dy = st.oy + Math.round(y * s);
+      // only the part of the layer that is on screen
+      const sx0 = Math.max(0, Math.floor(-dx / s)), sy0 = Math.max(0, Math.floor(-dy / s));
+      const sx1 = Math.min(b.w, Math.ceil((st.devW - dx) / s)), sy1 = Math.min(b.h, Math.ceil((st.devH - dy) / s));
+      if (sx1 <= sx0 || sy1 <= sy0) return;
+      og.drawImage(b.asCanvas(), sx0, sy0, sx1 - sx0, sy1 - sy0, dx + sx0 * s, dy + sy0 * s, (sx1 - sx0) * s, (sy1 - sy0) * s);
+    },
+    // smooth drawing at screen resolution (light, paper, petals), in art units: fn(g, B) with B = { s, ox, oy }
+    smooth(fn) {
+      const st = disp.st, B = { s: st.s, ox: st.ox, oy: st.oy };
+      og.save(); og.setTransform(B.s, 0, 0, B.s, B.ox, B.oy); og.imageSmoothingEnabled = true; fn(og, B); og.restore();
+    },
+    pix(fn, offX = 0, offY = 0) {
+      const st = disp.st, s = st.s, bx = Math.floor(offX), by = Math.floor(offY);
+      F.clear(0); fn(F, bx, by);
+      // only the band of rows that has something in it is uploaded and drawn (most overlays are a strip or a sprite)
+      const d = F.d, W = F.w;
+      let y0 = 0, y1 = F.h - 1;
+      const empty = (y) => { for (let i = y * W, e = i + W; i < e; i += 1) if (d[i]) return false; return true; };
+      while (y0 <= y1 && empty(y0)) y0 += 1;
+      if (y0 > y1) return;
+      while (y1 > y0 && empty(y1)) y1 -= 1;
+      const rows = y1 - y0 + 1;
+      disp.low.getContext('2d').putImageData(F.img, 0, 0, 0, y0, W, rows);
+      og.drawImage(disp.low, 0, y0, W, rows, st.ox + Math.round((offX - bx) * s), st.oy + Math.round((offY - by) * s) + y0 * s, W * s, rows * s);
+    },
+  };
   return {
     el: disp.el,
     resize(cssW, cssH) { const st = disp.resize(cssW, cssH); if (F.w !== st.w || F.h !== st.h) F = new Buf(st.w, st.h); },
     get portrait() { return !!disp.st.portrait; },
     get size() { return [F.w, F.h]; },
     render(scene, t, { mosaic = 1, fade = 0, fadeColor = '#fff3dc' } = {}) {
-      scene.render(F, t, { portrait: !!disp.st.portrait });
-      disp.low.getContext('2d').putImageData(F.img, 0, 0);
-      disp.present(mosaic, fade, fadeColor);
+      const st = disp.st;
+      R.w = F.w; R.h = F.h; R.portrait = !!st.portrait;
+      og.imageSmoothingEnabled = false;
+      scene.render(R, t, { portrait: R.portrait });
+      if (mosaic > 1.01) {
+        // coarse blocks: average the frame down, then show it back up with hard edges
+        const m = Math.max(1, Math.round(mosaic)) * st.s, tw = Math.max(1, Math.ceil(st.devW / m)), th = Math.max(1, Math.ceil(st.devH / m));
+        if (tmp.width !== tw || tmp.height !== th) { tmp.width = tw; tmp.height = th; }
+        const tg = tmp.getContext('2d'); tg.imageSmoothingEnabled = true; tg.clearRect(0, 0, tw, th); tg.drawImage(disp.el, 0, 0, tw, th);
+        og.imageSmoothingEnabled = false; og.drawImage(tmp, 0, 0, tw, th, 0, 0, tw * m, th * m);
+      }
+      if (fade > 0.001) { og.globalAlpha = Math.min(1, fade); og.fillStyle = fadeColor; og.fillRect(0, 0, st.devW, st.devH); og.globalAlpha = 1; }
     },
     show(v) { if (v !== shown) { shown = v; disp.el.style.visibility = v ? 'visible' : 'hidden'; } },
   };
@@ -6344,7 +6699,8 @@ function birds(F, t, w, h, oy) {
 function petals(F, t, w, h, density = 1) {
   const n = Math.round(26 * density);
   for (let i = 0; i < n; i += 1) {
-    const s = hash2(i, 1, 9), s2 = hash2(i, 2, 9), sp = 9 + s2 * 12, x = ((s * (w + 40) - t * (8 + s * 10)) % (w + 40) + w + 40) % (w + 40) - 20;
+    // start and speed from different hashes, so the petals stay spread out
+    const s = hash2(i, 1, 9), s2 = hash2(i, 2, 9), sp = 9 + hash2(i, 3, 9) * 12, x = ((s * (w + 40) - t * (8 + hash2(i, 4, 9) * 10)) % (w + 40) + w + 40) % (w + 40) - 20;
     const y = ((s2 * (h + 20) + t * sp) % (h + 20)) - 10;
     const c = C(['#ffb4d2', '#f06aa6', '#d63a7f'][i % 3]);
     const X = Math.round(x + Math.sin(t * 2 + i) * 3), Y = Math.round(y);
@@ -6357,38 +6713,41 @@ function createCampus() {
     dur: CAMPUS_DUR,
     prepare(budget = Infinity) { return prep.step(budget); },
     get prepared() { return prep.done; },
-    render(F, t, { portrait = false } = {}) {
+    // R: a compositor (stage.js on screen, artCompositor in the lab). Layers scroll at screen-pixel precision; the
+    // moving things are drawn on pixel overlays anchored to the layer they belong to.
+    render(R, t, { portrait = false } = {}) {
       if (!LAYERS) prep.layers();
-      const L = LAYERS, w = F.w, h = F.h;
+      const L = LAYERS, w = R.w, h = R.h;
       // where the couple is, and where the camera looks
       const cx = X0 + WALK_SPEED * t;
       const ground = Math.round(h * (portrait ? 0.64 : 0.73));
       // crane: from the sky down to the couple at the start, back up at the end
       const ease = (u) => u * u * (3 - 2 * u);
       const up = 90 * (1 - ease(Math.min(1, t / 3.2))) + 70 * ease(Math.max(0, (t - (CAMPUS_DUR - 3)) / 3));
-      const G = ground + Math.round(up);
+      const G = ground + up;
       const camX = cx - w * (portrait ? 0.38 : 0.4);
-      F.clear(C(PAL.sky[0]));
+      R.fill(PAL.sky[0]);
       // sky: fixed to the horizon
-      F.draw(L.sky.b, 0, G + L.sky.bottom - L.sky.b.h);
-      glow(F, w * 0.22, G - 120, 60, '#fff1d0', 0.5, 5);
-      F.ellipse(w * 0.22, G - 120, 9, 9, C('#fff7e2'));
-      for (const c of L.clouds) { const x = ((c.x - camX * c.k + t * c.v) % (w + 220) + w + 220) % (w + 220) - 110; F.draw(c.b, x, G + c.y); }
-      birds(F, t, w, h, G - 80);
-      const lay = (o) => F.draw(o.b, Math.round(-camX * o.k), G + o.top);
+      R.layer(L.sky.b, 0, G + L.sky.bottom - L.sky.b.h);
+      R.pix((F, bx, by) => { glow(F, w * 0.22, by - 120, 60, '#fff1d0', 0.5, 5); F.ellipse(w * 0.22, by - 120, 9, 9, C('#fff7e2')); }, 0, G);
+      for (const c of L.clouds) { const x = ((c.x - camX * c.k + t * c.v) % (w + 220) + w + 220) % (w + 220) - 110; R.layer(c.b, x, G + c.y); }
+      R.pix((F, bx, by) => birds(F, t, w, h, by - 80), 0, G);
+      const lay = (o) => R.layer(o.b, -camX * o.k, G + o.top);
       lay(L.far); lay(L.school);
-      flag(F, t, Math.round(L.flagX - camX * L.school.k), G + L.school.top + 10);
+      R.pix((F, bx, by) => flag(F, t, L.flagX + bx, by + L.school.top + 10), -camX * L.school.k, G);
       lay(L.trees); lay(L.field);
-      footballers(F, t, Math.round(-camX * L.field.k), G + L.field.top + 4);
+      R.pix((F, bx, by) => footballers(F, t, bx, by + L.field.top + 4), -camX * L.field.k, G);
       lay(L.track);
       // the couple, with a soft shadow; the walk phase follows the distance walked so feet never slide
-      const ph = ((cx - X0) / STRIDE) % 1, frame = Math.floor(ph * FR) % FR;
-      const sp = coupleFrame('school', frame, FR);
-      const sx = Math.round(cx - camX) - sp.anchor[0], sy = G - sp.anchor[1];
-      shadowEllipse(F, sx + sp.anchor[0] + 2, G + 1, 9, 1.6, 0.3); shadowEllipse(F, sx + sp.anchor[0] + 17, G + 3, 8, 1.6, 0.3);
-      F.draw(sp.buf, sx, sy);
+      R.pix((F, bx, by) => {
+        const ph = ((cx - X0) / STRIDE) % 1, frame = Math.floor(ph * FR) % FR;
+        const sp = coupleFrame('school', frame, FR);
+        const sx = Math.round(cx - camX) - sp.anchor[0], sy = by - sp.anchor[1];
+        shadowEllipse(F, sx + sp.anchor[0] + 2, by + 1, 9, 1.6, 0.3); shadowEllipse(F, sx + sp.anchor[0] + 17, by + 3, 8, 1.6, 0.3);
+        F.draw(sp.buf, sx, sy);
+      }, 0, G);
       lay(L.front);
-      petals(F, t, w, h, 1);
+      R.pix((F) => petals(F, t, w, h, 1));
       return { coupleX: cx - camX, ground: G };
     },
   };
@@ -6519,22 +6878,22 @@ function fountain(F, t, x, G) {
   for (let k = 0; k < 8; k += 1) { const rx = bx + 4 + ((k * 11 + Math.floor(t * 6)) % (bw - 8)); F.px(rx, by + 2, C('#e6f4ff')); }
   F.rect(bx, by + 7, bw, 1, C('#9a938a'));
 }
-function pigeons(F, t, xWorld, camX, G, coupleX) {
+function pigeons(F, t, xWorld, bx, G, coupleX) {
   for (let i = 0; i < 7; i += 1) {
     const px0 = xWorld + i * 9 + (i % 2) * 4, py0 = G + 6 + (i % 3) * 3;
     const scare = Math.max(0, (coupleX + 26 - px0) / 30);
     const fly = Math.min(1, scare);
-    const X = Math.round(px0 - camX + fly * fly * (40 + i * 6)), Y = Math.round(py0 - fly * fly * (60 + i * 10));
+    const X = Math.round(px0 + bx + fly * fly * (40 + i * 6)), Y = Math.round(py0 - fly * fly * (60 + i * 10));
     const c = C('#8c8f9c'), c2 = C('#5d6070');
     if (fly < 0.05) { F.rect(X, Y, 3, 2, c); F.px(X + 3, Y - 1, c2); F.px(X - 1, Y, c2); if (Math.floor(t * 3 + i) % 4 === 0) F.px(X + 3, Y, c2); }
     else { const up = Math.floor(t * 14 + i) % 2; F.rect(X, Y, 3, 1, c); F.px(X - 1, Y - (up ? 1 : -1), c2); F.px(X + 3, Y - (up ? 1 : -1), c2); F.px(X - 2, Y - (up ? 2 : -1), c2); F.px(X + 4, Y - (up ? 2 : -1), c2); }
   }
 }
 // people walking on the far side of the plaza: little figures in work clothes
-function passers(F, t, camX, G) {
+function passers(F, t, bx, G) {
   const list = [[0, 18, '#2b3f72'], [120, -14, '#5c5f6c'], [210, 16, '#7a2a35'], [330, -18, '#2b3f72'], [470, 15, '#e7d2ae'], [560, -15, '#3a3a44'], [700, 17, '#5c5f6c']];
   list.forEach(([x0, v, col], i) => {
-    const x = x0 + v * t, X = Math.round(x - camX * 0.7), Y = G - 14;
+    const x = x0 + v * t, X = Math.round(x) + bx, Y = G - 14;
     const ph = Math.floor(t * 6 + i) % 2;
     F.rect(X, Y - 9, 2, 2, C('#f0c8a8')); F.px(X, Y - 10, C('#2a2028')); F.px(X + 1, Y - 10, C('#2a2028'));
     F.rect(X, Y - 7, 2, 4, C(col)); F.px(X + (v > 0 ? 2 : -1), Y - 6, C(col));
@@ -6547,33 +6906,39 @@ function createOffice() {
     dur: OFFICE_DUR,
     prepare(budget = Infinity) { return prep.step(budget); },
     get prepared() { return prep.done; },
-    render(F, t, { portrait = false } = {}) {
+    render(R, t, { portrait = false } = {}) {
       if (!LAYERS) prep.layers();
-      const L = LAYERS, w = F.w, h = F.h;
+      const L = LAYERS, w = R.w, h = R.h;
       const cx = X0 + SPEED * t;
       const ground = Math.round(h * (portrait ? 0.64 : 0.73));
       const ease = (u) => u * u * (3 - 2 * u);
       const up = 100 * (1 - ease(Math.min(1, t / 3.4))) + 80 * ease(Math.max(0, (t - (OFFICE_DUR - 3)) / 3));
-      const G = ground + Math.round(up);
+      const G = ground + up;
       const camX = cx - w * (portrait ? 0.38 : 0.4);
-      F.clear(C(PAL.sky[0]));
-      F.draw(L.sky.b, 0, G + L.sky.bottom - L.sky.b.h);
-      glow(F, w * 0.16, G - 150, 70, '#fff6dc', 0.45, 5); F.ellipse(w * 0.16, G - 150, 8, 8, C('#fffbea'));
-      for (const c of L.clouds) { const x = ((c.x - camX * c.k + t * c.v) % (w + 220) + w + 220) % (w + 220) - 110; F.draw(c.b, x, G + c.y); }
-      const lay = (o) => F.draw(o.b, Math.round(-camX * o.k), G + o.top);
+      R.fill(PAL.sky[0]);
+      R.layer(L.sky.b, 0, G + L.sky.bottom - L.sky.b.h);
+      R.pix((F, bx, by) => { glow(F, w * 0.16, by - 150, 70, '#fff6dc', 0.45, 5); F.ellipse(w * 0.16, by - 150, 8, 8, C('#fffbea')); }, 0, G);
+      for (const c of L.clouds) { const x = ((c.x - camX * c.k + t * c.v) % (w + 220) + w + 220) % (w + 220) - 110; R.layer(c.b, x, G + c.y); }
+      const lay = (o) => R.layer(o.b, -camX * o.k, G + o.top);
       lay(L.far); lay(L.towers);
       // glints on the glass
-      for (let i = 0; i < 6; i += 1) { const gx = ((i * 97 + 40) - camX * 0.28) % (w + 40), gy = G - 60 - (i * 37) % 120; if (Math.floor(t * 2 + i * 1.7) % 5 === 0) { F.px(gx, gy, C('#ffffff')); F.px(gx - 1, gy, C('#e8f4ff')); F.px(gx + 1, gy, C('#e8f4ff')); F.px(gx, gy - 1, C('#e8f4ff')); F.px(gx, gy + 1, C('#e8f4ff')); } }
+      R.pix((F, bx, by) => { for (let i = 0; i < 6; i += 1) { const gx = ((((i * 97 + 40) + bx) % (w + 40)) + w + 40) % (w + 40), gy = by - 60 - (i * 37) % 120; if (Math.floor(t * 2 + i * 1.7) % 5 === 0) { F.px(gx, gy, C('#ffffff')); F.px(gx - 1, gy, C('#e8f4ff')); F.px(gx + 1, gy, C('#e8f4ff')); F.px(gx, gy - 1, C('#e8f4ff')); F.px(gx, gy + 1, C('#e8f4ff')); } } }, -camX * L.towers.k, G);
       lay(L.back);
-      passers(F, t, camX, G);
+      R.pix((F, bx, by) => passers(F, t, bx, by), -camX * 0.7, G);
       lay(L.plaza);
-      fountain(F, t, Math.round(270 - camX), G - 2);
-      pigeons(F, t, 320, camX, G, cx);
-      const ph = ((cx - X0) / STRIDE) % 1, frame = Math.floor(ph * FR) % FR;
-      const sp = coupleFrame('office', frame, FR);
-      const sx = Math.round(cx - camX) - sp.anchor[0], sy = G - sp.anchor[1];
-      shadowEllipse(F, sx + sp.anchor[0] + 2, G + 1, 9, 1.6, 0.25); shadowEllipse(F, sx + sp.anchor[0] + 17, G + 3, 8, 1.6, 0.25);
-      F.draw(sp.buf, sx, sy);
+      // on the plaza (it scrolls with the ground): the fountain, the pigeons
+      R.pix((F, bx, by) => {
+        fountain(F, t, 270 + bx, by - 2);
+        pigeons(F, t, 320, bx, by, cx);
+      }, -camX, G);
+      // the couple: the camera follows them, so they stay put on the screen
+      R.pix((F, bx, by) => {
+        const ph = ((cx - X0) / STRIDE) % 1, frame = Math.floor(ph * FR) % FR;
+        const sp = coupleFrame('office', frame, FR);
+        const sx = Math.round(cx - camX) - sp.anchor[0], sy = by - sp.anchor[1];
+        shadowEllipse(F, sx + sp.anchor[0] + 2, by + 1, 9, 1.6, 0.25); shadowEllipse(F, sx + sp.anchor[0] + 17, by + 3, 8, 1.6, 0.25);
+        F.draw(sp.buf, sx, sy);
+      }, 0, G);
       lay(L.front);
       return { coupleX: cx - camX, ground: G };
     },
@@ -6588,16 +6953,17 @@ function(__r,__e){// Chapter 3 in pixels — the wedding by the sea at sunset.
 //           changed clothes running along the ribbon)
 //  6–42 s   nine steps of four seconds as they walk hand in hand: 1 confetti and fireworks · 2 streamers ·
 //           3 the red silk ball · 4 whales leap from the sea over their heads (out on the pier, sea and land together) ·
-//           5 sika deer and white rabbits · 6 birds fly in from beyond the frame to two phoenixes · 7–9 petals until
-//           they fill the screen
+//           5 sika deer and white rabbits · 6 doves and magpies fly in to two golden firebirds · 7–9 petals until
+//           they fill the screen (the light, the paper and the petals are drawn smooth, not in pixels: softfx.js)
 //  42–46 s  they stop before the pavilion and turn to each other
 //  46–51 s  the camera moves on to the book on the pavilion table
 const {Buf:Buf,C:C,mix:mix,preparer:preparer}=__r(21);
 const {vgrad:vgrad,cloud:cloud,crown:crown,trunk:trunk,ridge:ridge,glow:glow,rng:rng,hash2:hash2,fbm:fbm,shadowEllipse:shadowEllipse}=__r(23);
 const {coupleFrame:coupleFrame,singleFrame:singleFrame,strideOf:strideOf,OUTFITS:OUTFITS}=__r(22);
-const {drawWhale:drawWhale,drawSpout:drawSpout,drawSplash:drawSplash,deerFrame:deerFrame,rabbitFrame:rabbitFrame,birdFrame:birdFrame,drawPhoenix:drawPhoenix,phoenixFrame:phoenixFrame,phoenixAura:phoenixAura}=__r(30);
-const {confetti:confetti,firework:firework,streamers:streamers,drawSilkBall:drawSilkBall,silkBall:silkBall,petals:petals}=__r(31);
-const {backCouple:backCouple,BACK_ANCHOR:BACK_ANCHOR}=__r(32);
+const {drawWhale:drawWhale,drawSpout:drawSpout,drawSplash:drawSplash,deerFrame:deerFrame,rabbitFrame:rabbitFrame,birdFrame:birdFrame}=__r(31);
+const {drawSilkBall:drawSilkBall,silkBall:silkBall}=__r(32);
+const {firework:firework,confetti:confetti,streamers:streamers,firebird:firebird,petals:petals,bloom:bloom}=__r(24);
+const {backCouple:backCouple,BACK_ANCHOR:BACK_ANCHOR}=__r(33);
 
 const WEDDING_DUR = 51;
 const STEP0 = 6, STEP = 4;
@@ -6611,6 +6977,14 @@ const XSTOP = X0 + WALK;
 const PAV = XSTOP + 58; // pavilion centre
 const MAXW = 560;
 const Z = { pier0: 418, pier1: 690, water0: 330, water1: 760, garden0: 760 };
+// step 1: fireworks [start (walking clock), x (share of the width), height above the ground, seed, colours]
+const FIREWORKS = [
+  [0.4, 0.62, 92, 1, ['#ffd27a', '#fff2c8', '#ff9a6a']],
+  [0.95, 0.3, 108, 2, ['#ff6a7a', '#ffd27a', '#ffffff']],
+  [1.55, 0.44, 116, 3, ['#ffe6a8', '#ff9fc0', '#ffd27a']],
+  [2.3, 0.72, 122, 4, ['#ffffff', '#ffd27a', '#ffe9c0']],
+  [3.1, 0.54, 100, 5, ['#ff7a80', '#ffd27a', '#fff2c8']],
+];
 
 const PAL = {
   sky: ['#2b2a62', '#363070', '#47357a', '#5c3a82', '#743f88', '#8e4789', '#a85086', '#c05a82', '#d6687c', '#e67c74', '#f2946c', '#f8ae6a', '#fbc672', '#fcd88a'],
@@ -6766,8 +7140,7 @@ for (let k = 0; k < 8; k += 1) { JOBS.push(() => backCouple('office', k / 8)); f
 for (const kind of ['stag', 'doe', 'fawn']) for (let k = 0; k <= 8; k += 1) JOBS.push(() => deerFrame(kind, k / 8, 0));
 for (let f = 0; f < 4; f += 1) JOBS.push(() => rabbitFrame(f));
 for (const kind of ['magpie', 'dove']) for (let f = 0; f < 6; f += 1) for (const sz of [1, 2]) JOBS.push(() => birdFrame(kind, f, sz));
-JOBS.push(() => silkBall(), () => phoenixAura(0), () => phoenixAura(1));
-for (let f = 0; f < 32; f += 1) for (const v of [0, 1]) JOBS.push(() => phoenixFrame(v, f));
+JOBS.push(() => silkBall());
 const prep = preparer(build, JOBS);
 
 // water under and around the pier: animated swell lines and glitter
@@ -6791,11 +7164,13 @@ function createWedding() {
     dur: WEDDING_DUR,
     prepare(budget = Infinity) { return prep.step(budget); },
     get prepared() { return prep.done; },
-    render(F, t, { portrait = false } = {}) {
+    // R: a compositor (stage.js on screen, artCompositor in the lab). Layers scroll at screen-pixel precision; moving
+    // things are drawn on a few pixel overlays laid between them.
+    render(R, t, { portrait = false } = {}) {
       if (!LAYERS) prep.layers();
-      const L = LAYERS, w = F.w, h = F.h;
+      const L = LAYERS, w = R.w, h = R.h;
       const ground = Math.round(h * (portrait ? 0.66 : 0.74));
-      if (t < STEP0) return closeUp(F, t, ground, portrait);
+      if (t < STEP0) return closeUp(R, t, ground, portrait);
       const tw = t - STEP0; // walking clock
       const walkT = Math.min(tw, STEP * 9);
       const cx = X0 + SPEED * walkT;
@@ -6805,120 +7180,135 @@ function createWedding() {
       // the sky beats look up a little (whales, phoenixes): the horizon sinks
       const lift = portrait ? 40 : 26;
       const up = lift * (ease(Math.min(1, Math.max(0, tw - 12.3) / 1)) * (1 - ease(Math.min(1, Math.max(0, tw - 15.6) / 0.8)))) + lift * (ease(Math.min(1, Math.max(0, tw - 20.2) / 1)) * (1 - ease(Math.min(1, Math.max(0, tw - 24.2) / 1.2))));
-      const G = ground + Math.round(up);
-      F.clear(C(PAL.sky[0]));
-      F.draw(L.sky.b, 0, G + L.sky.bottom - L.sky.b.h);
+      const G = ground + up;
+      const sunXf = w * 0.72 - camX * 0.02;
+      R.fill(PAL.sky[0]);
+      R.layer(L.sky.b, 0, G + L.sky.bottom - L.sky.b.h);
       // the setting sun on the horizon with its glow
-      const sunX = Math.round(w * 0.72 - camX * 0.02), sunY = G - 36;
-      glow(F, sunX, sunY, 90, '#ffb070', 0.55, 8); glow(F, sunX, sunY, 40, '#ffe0a0', 0.6, 6);
-      F.ellipse(sunX, sunY, 14, 14, C('#fff0c0')); F.ellipse(sunX, sunY, 12, 12, C('#fff8e0'));
-      for (const c of L.clouds) { const x = ((c.x - camX * c.k + t * c.v) % (w + 260) + w + 260) % (w + 260) - 130; F.draw(c.b, x, G + c.y); }
-      const lay = (o) => F.draw(o.b, Math.round(-camX * o.k), G + o.top);
+      R.pix((F, bx, by) => { const sunX = Math.round(sunXf), sunY = by - 36; glow(F, sunX, sunY, 90, '#ffb070', 0.55, 8); glow(F, sunX, sunY, 40, '#ffe0a0', 0.6, 6); F.ellipse(sunX, sunY, 14, 14, C('#fff0c0')); F.ellipse(sunX, sunY, 12, 12, C('#fff8e0')); }, 0, G);
+      for (const c of L.clouds) { const x = ((c.x - camX * c.k + t * c.v) % (w + 260) + w + 260) % (w + 260) - 130; R.layer(c.b, x, G + c.y); }
+      const lay = (o) => R.layer(o.b, -camX * o.k, G + o.top);
       lay(L.sea);
-      // the sun's glitter on the sea
-      for (let y = sunY + 15; y < G - 2; y += 1) { const spread = 3 + (y - sunY) * 0.35; for (let k = 0; k < 4; k += 1) { const xx = sunX + (hash2(k, y, Math.floor(t * 5)) - 0.5) * 2 * spread; F.px(Math.round(xx), y, C(k % 2 ? '#ffe0a0' : '#fff6d8')); } }
+      // the sun's glitter on the sea, only while the sun shows above the hills
+      const sunOpen = sunShows(L, sunXf, G - 36, camX, G);
+      if (sunOpen > 0.3) R.pix((F, bx, by) => { const sunX = Math.round(sunXf), sunY = by - 36, n = Math.round(4 * sunOpen); for (let y = sunY + 15; y < by - 2; y += 1) { const spread = 3 + (y - sunY) * 0.35; for (let k = 0; k < n; k += 1) { const xx = sunX + (hash2(k, y, Math.floor(t * 5)) - 0.5) * 2 * spread; F.px(Math.round(xx), y, C(k % 2 ? '#ffe0a0' : '#fff6d8')); } } }, 0, G);
       lay(L.coast);
-      if (L.lighthouse) { const lx = Math.round(L.lighthouse[0] - camX * L.coast.k), ly = G + L.coast.top + L.lighthouse[1]; const k = (Math.sin(t * 2) + 1) / 2; glow(F, lx, ly, 10 + k * 8, '#fff2b0', 0.7, 4); }
       lay(L.farside);
-      // guests clapping
-      if (L.guests) for (const [gx, gy] of L.guests) { const X = Math.round(gx - camX * L.farside.k), Y = G + L.farside.top + gy; if (X < -4 || X > w + 4) continue; const up2 = Math.floor(t * 6 + gx) % 2; F.px(X, Y - up2, C('#f0c8a8')); }
-      // the background whale (B) swims behind the pier, so it is drawn before the path
-      const ws = whales(F, t, tw, camX, G, cx, w, h, portrait, 'back');
+      // step 1: fireworks over the water (smooth light, not pixels); they drift a little as the camera walks on
+      if (tw < 5.8) R.smooth((g) => { for (const [t0, fx, fy, seed, cols] of FIREWORKS) firework(g, tw, t0, w * fx - SPEED * Math.max(0, tw - t0) * 0.12, G - fy, { seed, cols }); });
+      // Each overlay below is anchored to what it shows: things standing in the scenery scroll with their layer (bx
+      // is that layer's offset), the couple and the effects around them stay put on the screen while the camera
+      // follows them, so nothing shivers by a fraction of a pixel against what it stands on.
+      // the lighthouse lamp and the guests clapping on the far side
+      { const oX = -camX * L.farside.k;
+        R.pix((F, bx, by) => {
+          if (L.lighthouse) { const lx = Math.round(L.lighthouse[0] - camX * L.coast.k - (oX - bx)), ly = by + L.coast.top + L.lighthouse[1]; const k = (Math.sin(t * 2) + 1) / 2; glow(F, lx, ly, 10 + k * 8, '#fff2b0', 0.7, 4); }
+          if (L.guests) for (const [gx, gy] of L.guests) { const X = gx + bx, Y = by + L.farside.top + gy; if (X < -4 || X > w + 4) continue; const up2 = Math.floor(t * 6 + gx) % 2; F.px(X, Y - up2, C('#f0c8a8')); }
+        }, oX, G); }
+      const coupleS = Math.round(cx - camX); // the groom's feet on the screen
+      if (whalesOn(tw)) R.pix((F, bx, by) => whales(F, tw, by, coupleS, w, portrait, 'back'), 0, G);
       lay(L.path);
-      // the pier stands in the water: sea from the deck down to the bottom of the screen
-      const pierPosts = () => { for (let x = Z.pier0; x < Z.pier1; x += 14) { const X = Math.round(x - camX); if (X < -4 || X > w + 4) continue; F.rect(X, G + 6, 3, 30, C(PAL.wood[3])); F.rect(X, G + 6, 1, 30, C(PAL.wood[2])); } };
-      // pavilion
-      { const X = Math.round(PAV - camX - L.pavilion.ox), Y = G + 2 - L.pavilion.base; F.draw(L.pavilion.b, X, Y); const lk = 0.6 + 0.4 * Math.sin(t * 3); glow(F, X + L.pavilion.ox, Y + L.pavilion.base - 30, 14 * lk + 6, '#ffe8b0', 0.5, 4); }
-      // ---------------- creatures and effects behind the couple
-      const step = Math.floor(tw / STEP), ts = tw - step * STEP;
-      deerAndRabbits(F, t, tw, camX, G);
-      // ---------------- the couple
-      const coupleX = Math.round(cx - camX);
-      if (t < 42.6) {
-        const ph = ((cx - X0) / STRIDE) % 1, frame = tw >= STEP * 9 ? 4 : Math.floor(ph * FR) % FR;
-        const sp = coupleFrame('wedding', frame, FR);
-        shadowEllipse(F, coupleX + 2, G + 1, 10, 1.8, 0.28); shadowEllipse(F, coupleX + 17, G + 3, 12, 2, 0.28);
-        F.draw(sp.buf, coupleX - sp.anchor[0], G - sp.anchor[1]);
-      } else {
-        // facing each other, holding both hands
-        const g = singleFrame('groom', 'wedding', 0, FR, { stand: true }), b = singleFrame('bride', 'wedding', 0, FR, { stand: true });
-        const gap = Math.round(8 + 6 * (1 - ease(Math.min(1, (t - 42.6) / 1.2))));
-        shadowEllipse(F, coupleX + 2, G + 1, 9, 1.8, 0.28); shadowEllipse(F, coupleX + gap + 12, G + 1, 12, 2, 0.28);
-        F.draw(g.buf, coupleX - g.anchor[0], G - g.anchor[1]);
-        F.draw(b.buf, coupleX + gap + 12 - (b.buf.w - b.anchor[0]), G - b.anchor[1], { flip: true });
-        F.rect(coupleX + 6, G - 21, gap + 1, 2, C('#f2c4a2')); F.rect(coupleX + 6, G - 21, gap + 1, 1, C('#ffe0c8'));
-      }
+      // the pavilion stands on the path
+      R.layer(L.pavilion.b, PAV - camX - L.pavilion.ox, G + 2 - L.pavilion.base);
+      if (deerOn(tw)) R.pix((F, bx, by) => deer(F, tw, bx, by), -camX * 0.92, G);
+      const standing = t >= 42.5;
+      // on the path: the pavilion lamp, rabbits, and the couple once they stand still
+      R.pix((F, bx, by) => {
+        { const X = PAV + bx, Y = by + 2 - L.pavilion.base; const lk = 0.6 + 0.4 * Math.sin(t * 3); glow(F, X, Y + L.pavilion.base - 30, 14 * lk + 6, '#ffe8b0', 0.5, 4); }
+        rabbits(F, tw, bx, by);
+        if (standing) drawCouple(F, t, tw, Math.round(cx) + bx, by);
+      }, -camX, G);
+      // walking: the camera follows them, so they stay where they are on the screen; the whale in front of the pier
+      if (!standing || whalesOn(tw)) R.pix((F, bx, by) => { if (!standing) drawCouple(F, t, tw, coupleS, by); whales(F, tw, by, coupleS, w, portrait, 'front'); }, 0, G);
       // ---------------- foreground
-      whales(F, t, tw, camX, G, cx, w, h, portrait, 'front');
-      F.draw(L.near.b, Math.round(-camX * L.near.k), G + L.near.top);
-      pierPosts();
-      // glints on the near water
-      { const xa = L.near.wa - camX * L.near.k, xb = L.near.wb - camX * L.near.k; if (xb > 0 && xa < w) for (let i = 0; i < 60; i += 1) { const x = Math.round(xa + hash2(i, 1, Math.floor(t * 3)) * (xb - xa)), y = Math.round(G + L.near.top + 4 + hash2(i, 2, Math.floor(t * 3)) * (h - G)); if (x > 0 && x < w && Math.floor(t * 6 + i) % 3 === 0) F.bpx(x, y, C('#ffe2b0'), 0.8); } }
-      // ---------------- the steps
-      if (tw < 9) { confetti(F, tw, 0.05, { n: Math.round(w * 0.9) }); firework(F, tw, 0.4, w * 0.62, G - 110, { seed: 1 }); firework(F, tw, 0.9, w * 0.82, G - 130, { seed: 2, cols: ['#ff4a5a', '#ffd27a', '#ffffff'] }); firework(F, tw, 1.4, w * 0.44, G - 140, { seed: 3, cols: ['#ffe6a8', '#ff8fb0', '#ffd27a'] }); firework(F, tw, 2.1, w * 0.72, G - 150, { seed: 4, cols: ['#ffffff', '#ffd27a'] }); firework(F, tw, 2.8, w * 0.52, G - 120, { seed: 5, cols: ['#ff6070', '#ffd27a', '#fff2c8'] }); firework(F, tw, 3.3, w * 0.9, G - 105, { seed: 6 }); }
-      if (tw > 3.9 && tw < 11) streamers(F, tw, STEP, { n: Math.round(w / 16) });
-      if (tw > 7.6 && tw < 12.6) { const k = tw - 2 * STEP; const yIn = ease(Math.min(1, k / 1.3)), yOut = ease(Math.max(0, (k - 2.8) / 1.4)); const bx = coupleX + 24, by = Math.round(-30 + (G - 70 + 30) * yIn - yOut * (G + 20)); drawSilkBall(F, bx, by, t, { ribbonTop: -10 }); }
-      birdsAndPhoenixes(F, t, tw, G, w, h, coupleX, portrait);
-      const dens = tw < 24 ? 0.06 * Math.min(1, tw / 2) : tw < 28 ? 0.12 : tw < 32 ? 0.12 + 0.28 * ease(Math.min(1, (tw - 24) / 1.5)) : tw < 36 ? 0.4 + 0.3 * ease(Math.min(1, (tw - 28) / 1.5)) : tw < 40 ? 0.7 + 0.3 * ease(Math.min(1, (tw - 32) / 1.5)) : Math.max(0.55, 1 - (tw - 36) * 0.05);
-      petals(F, t, dens, { seed: 3 });
-      // into the book: a soft white bloom from the table
-      if (t > 47.5) { const k = ease(Math.min(1, (t - 47.5) / 3)); const X = Math.round(PAV - camX), Y = G - 28; glow(F, X, Y, 20 + k * w, '#fff6e6', 0.4 + k * 0.6, 8); }
-      return { coupleX, ground: G };
+      R.layer(L.near.b, -camX * L.near.k, G + L.near.top);
+      R.pix((F, bx, by) => {
+        // the pier's posts stand in the water in front of the sea
+        for (let x = Z.pier0; x < Z.pier1; x += 14) { const X = x + bx; if (X < -4 || X > w + 4) continue; F.rect(X, by + 6, 3, 30, C(PAL.wood[3])); F.rect(X, by + 6, 1, 30, C(PAL.wood[2])); }
+        // glints on the near water
+        const fr = -camX - bx;
+        { const xa = L.near.wa - camX * L.near.k, xb = L.near.wb - camX * L.near.k; if (xb > 0 && xa < w) for (let i = 0; i < 60; i += 1) { const x = Math.round(xa + hash2(i, 1, Math.floor(t * 3)) * (xb - xa) - fr), y = Math.round(by + L.near.top + 4 + hash2(i, 2, Math.floor(t * 3)) * (h - by)); if (x > 0 && x < w && Math.floor(t * 6 + i) % 3 === 0) F.bpx(x, y, C('#ffe2b0'), 0.8); } }
+      }, -camX, G);
+      // ---------------- the steps, around the couple: the silk ball and the birds in pixels...
+      if (tw > 7.6 && tw < 29.5) R.pix((F, bx, by) => {
+        if (tw < 12.6) { const k = tw - 2 * STEP; const yIn = ease(Math.min(1, k / 1.3)), yOut = ease(Math.max(0, (k - 2.8) / 1.4)); const bX = coupleS + 24, bY = Math.round(-30 + (by - 70 + 30) * yIn - yOut * (by + 20)); drawSilkBall(F, bX, bY, t, { ribbonTop: -10 }); }
+        birds(F, t, tw, by, w, h, coupleS, portrait);
+      }, 0, G);
+      // ...and the light and the paper smooth: confetti, streamers, the two firebirds, petals, the white light at the end
+      R.smooth((g, B) => {
+        if (tw < 7) confetti(g, B, tw, 0.05, w, h, { n: portrait ? 60 : 80 });
+        if (tw > 3.9 && tw < 11.2) streamers(g, tw, STEP, w, h, { n: portrait ? 8 : 10 });
+        if (tw > 5 * STEP - 0.3 && tw < 5 * STEP + 9) for (let i = 0; i < 2; i += 1) firebird(g, firebirdPath(i, coupleS + 10, G - (portrait ? 150 : 110), w, portrait), t, { alpha: Math.min(1, Math.max(0, (tw - 5 * STEP + 0.2) / 0.5)), warm: i });
+        const dens = tw < 24 ? 0.06 * Math.min(1, tw / 2) : tw < 28 ? 0.12 : tw < 32 ? 0.12 + 0.28 * ease(Math.min(1, (tw - 24) / 1.5)) : tw < 36 ? 0.4 + 0.3 * ease(Math.min(1, (tw - 28) / 1.5)) : tw < 40 ? 0.7 + 0.3 * ease(Math.min(1, (tw - 32) / 1.5)) : Math.max(0.55, 1 - (tw - 36) * 0.05);
+        petals(g, B, t, w, h, dens, { seed: 3 });
+        if (t > 47.5) { const k = ease(Math.min(1, (t - 47.5) / 3)); bloom(g, PAV - camX, G - 28, 24 + k * w * 1.2, '#fff6e6', 0.45 + k * 0.55); }
+      });
+      return { coupleX: cx - camX, ground: G };
     },
   };
 }
 
 // 0–6 s: the close-up from behind
-function closeUp(F, t, ground, portrait) {
-  const L = LAYERS, w = F.w, h = F.h;
+function closeUp(R, t, ground, portrait) {
+  const L = LAYERS, w = R.w, h = R.h;
   const G = ground + (portrait ? 30 : 34);
-  F.clear(C(PAL.sky[0]));
-  F.draw(L.sky.b, 0, G - 40 + L.sky.bottom - L.sky.b.h + 40);
+  R.fill(PAL.sky[0]);
+  R.layer(L.sky.b, 0, G + L.sky.bottom - L.sky.b.h);
   const sunX = Math.round(w * 0.5), sunY = G - 74;
-  glow(F, sunX, sunY, 110, '#ffb070', 0.6, 8); glow(F, sunX, sunY, 46, '#ffe0a0', 0.65, 6);
-  F.ellipse(sunX, sunY, 16, 16, C('#fff0c0')); F.ellipse(sunX, sunY, 14, 14, C('#fff8e0'));
-  for (const c of L.clouds) F.draw(c.b, ((c.x + t * c.v * 2) % (w + 260) + w + 260) % (w + 260) - 130, G - 40 + c.y);
-  F.draw(L.sea.b, -40, G - 40 + L.sea.top);
-  for (let y = sunY + 16; y < G - 30; y += 1) { const spread = 3 + (y - sunY) * 0.4; for (let k = 0; k < 5; k += 1) F.px(Math.round(sunX + (hash2(k, y, Math.floor(t * 5)) - 0.5) * 2 * spread), y, C(k % 2 ? '#ffe0a0' : '#fff6d8')); }
-  // the lawn they stand on, a white runner leading away to the sea
-  for (let y = G - 30; y < h; y += 1) for (let x = 0; x < w; x += 1) { const u = (y - (G - 30)) / 60; const half = 10 + u * 40; const onRunner = Math.abs(x - w / 2) < half; F.d[y * w + x] = C(onRunner ? (Math.abs(Math.abs(x - w / 2) - half) < 1 ? '#d8ccd6' : '#f8f2ee') : PAL.grass[hash2(x >> 1, y >> 1, 4) > 0.8 ? 2 : 1]); }
-  // flower stands either side of the runner
-  for (let k = 0; k < 4; k += 1) for (const sd of [-1, 1]) { const u = k / 3, x = Math.round(w / 2 + sd * (14 + u * 50) * (portrait ? 0.7 : 1)), y = Math.round(G - 30 + u * 34), hh = 8 + u * 14; F.rect(x, y - hh, 2, hh, C('#f6f2ec')); F.circle(x + 1, y - hh - 3, 3 + u * 3, C(PAL.pink[1])); F.circle(x, y - hh - 4, 1.5 + u, C(PAL.pink[0])); }
-  // the couple in their wedding clothes (the change happened on the ribbon)
-  const sweepG = 1, sweepB = 1, veil = 1;
-  const sway = (t * 0.6) % 1;
-  const office = backCouple('office', sway), wed = backCouple('wedding', sway, { veil: Math.round(veil * 4) / 4 });
-  const ax = Math.round(w / 2 - BACK_ANCHOR[0]), ay = G + 6 - BACK_ANCHOR[1];
-  // compose per row: rows above each sweep line show the wedding clothes (the groom's half uses his line)
-  const top = ay + 2, H = office.h;
-  const lineG = top + sweepG * (H + 4), lineB = top + sweepB * (H + 4);
-  const split = BACK_ANCHOR[0];
-  for (let j = 0; j < H; j += 1) {
-    const Y = ay + j; if (Y < 0 || Y >= h) continue;
-    for (let i = 0; i < office.w; i += 1) {
-      const X = ax + i; if (X < 0 || X >= w) continue;
-      const line = i < split ? lineG : lineB;
-      const src = Y < line ? wed : office;
-      const v = src.d[j * src.w + i]; if (!(v >>> 24)) continue;
-      F.d[Y * w + X] = (v >>> 24) === 255 ? v : blendPx(F.d[Y * w + X], v);
-    }
-  }
-  // the golden sweep lines and sparkles
-  for (const [line, x0, x1, k] of [[lineG, ax + 20, ax + split, sweepG], [lineB, ax + split, ax + office.w - 20, sweepB]]) {
-    if (k <= 0 || k >= 1) continue;
-    for (let x = x0; x < x1; x += 1) { F.bpx(x, line, C('#fff2b0'), 0.9); F.bpx(x, line - 1, C('#ffd870'), 0.5); }
-  }
-
-  petals(F, t, 0.05 + Math.max(0, t - 4) * 0.04, { seed: 9 });
+  R.pix((F) => { glow(F, sunX, sunY, 110, '#ffb070', 0.6, 8); glow(F, sunX, sunY, 46, '#ffe0a0', 0.65, 6); F.ellipse(sunX, sunY, 16, 16, C('#fff0c0')); F.ellipse(sunX, sunY, 14, 14, C('#fff8e0')); });
+  for (const c of L.clouds) R.layer(c.b, ((c.x + t * c.v * 2) % (w + 260) + w + 260) % (w + 260) - 130, G - 40 + c.y);
+  R.layer(L.sea.b, -40, G - 40 + L.sea.top);
+  R.pix((F) => {
+    for (let y = sunY + 16; y < G - 30; y += 1) { const spread = 3 + (y - sunY) * 0.4; for (let k = 0; k < 5; k += 1) F.px(Math.round(sunX + (hash2(k, y, Math.floor(t * 5)) - 0.5) * 2 * spread), y, C(k % 2 ? '#ffe0a0' : '#fff6d8')); }
+    // the lawn they stand on, a white runner leading away to the sea
+    for (let y = Math.max(0, G - 30); y < h; y += 1) for (let x = 0; x < w; x += 1) { const u = (y - (G - 30)) / 60; const half = 10 + u * 40; const onRunner = Math.abs(x - w / 2) < half; F.d[y * w + x] = C(onRunner ? (Math.abs(Math.abs(x - w / 2) - half) < 1 ? '#d8ccd6' : '#f8f2ee') : PAL.grass[hash2(x >> 1, y >> 1, 4) > 0.8 ? 2 : 1]); }
+    // flower stands either side of the runner
+    for (let k = 0; k < 4; k += 1) for (const sd of [-1, 1]) { const u = k / 3, x = Math.round(w / 2 + sd * (14 + u * 50) * (portrait ? 0.7 : 1)), y = Math.round(G - 30 + u * 34), hh = 8 + u * 14; F.rect(x, y - hh, 2, hh, C('#f6f2ec')); F.circle(x + 1, y - hh - 3, 3 + u * 3, C(PAL.pink[1])); F.circle(x, y - hh - 4, 1.5 + u, C(PAL.pink[0])); }
+    // the couple in their wedding clothes (they changed on the ribbon), the veil stirring
+    const wed = backCouple('wedding', (t * 0.6) % 1, { veil: 1 });
+    F.draw(wed, Math.round(w / 2 - BACK_ANCHOR[0]), G + 6 - BACK_ANCHOR[1]);
+  });
+  R.smooth((g, B) => petals(g, B, t, w, h, 0.05 + Math.max(0, t - 4) * 0.04, { seed: 9 }));
   return { coupleX: w / 2, ground: G };
 }
-function blendPx(u, c) { const a = (c >>> 24) / 255; const r = (c & 255) * a + (u & 255) * (1 - a), g = ((c >> 8) & 255) * a + ((u >> 8) & 255) * (1 - a), b = ((c >> 16) & 255) * a + ((u >> 16) & 255) * (1 - a); return ((255 << 24) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0; }
+
+// how much of the sun shows above the coast and the hills of the far side (0..1)
+function sunShows(L, sunX, sunY, camX, G) {
+  let open = 0;
+  for (let i = -2; i <= 2; i += 1) {
+    let hid = false;
+    for (const o of [L.coast, L.farside]) {
+      const lx = Math.round(sunX + i * 5 + camX * o.k), ly = Math.round(sunY - (G + o.top));
+      if (lx >= 0 && ly >= 0 && lx < o.b.w && ly < o.b.h && (o.b.d[ly * o.b.w + lx] >>> 24) > 128) { hid = true; break; }
+    }
+    if (!hid) open += 1;
+  }
+  return open / 5;
+}
+// the couple: walking hand in hand, then (from 42.6 s) facing each other, holding both hands
+function drawCouple(F, t, tw, X, by) {
+  const ease = (u) => u * u * (3 - 2 * u);
+  if (t < 42.6) {
+    const ph = ((X0 + SPEED * Math.min(tw, STEP * 9) - X0) / STRIDE) % 1, frame = tw >= STEP * 9 ? 4 : Math.floor(ph * FR) % FR;
+    const sp = coupleFrame('wedding', frame, FR);
+    shadowEllipse(F, X + 2, by + 1, 10, 1.8, 0.28); shadowEllipse(F, X + 17, by + 3, 12, 2, 0.28);
+    F.draw(sp.buf, X - sp.anchor[0], by - sp.anchor[1]);
+    return;
+  }
+  const g = singleFrame('groom', 'wedding', 0, FR, { stand: true }), b = singleFrame('bride', 'wedding', 0, FR, { stand: true });
+  const gap = Math.round(8 + 6 * (1 - ease(Math.min(1, (t - 42.6) / 1.2))));
+  shadowEllipse(F, X + 2, by + 1, 9, 1.8, 0.28); shadowEllipse(F, X + gap + 12, by + 1, 12, 2, 0.28);
+  F.draw(g.buf, X - g.anchor[0], by - g.anchor[1]);
+  F.draw(b.buf, X + gap + 12 - (b.buf.w - b.anchor[0]), by - b.anchor[1], { flip: true });
+  F.rect(X + 6, by - 21, gap + 1, 2, C('#f2c4a2')); F.rect(X + 6, by - 21, gap + 1, 1, C('#ffe0c8'));
+}
 
 // step 4: two humpbacks leap from the sea over the couple in opposite directions, roll over, blow, and dive
-function whales(F, t, tw, camX, G, cx, w, h, portrait, layer) {
-  const s0 = STEP0 - STEP0 + 3 * STEP; // walking-clock start of step 4
+// (around the couple on the screen; G is the ground row, coupleX the groom's feet)
+const whalesOn = (tw) => tw >= 3 * STEP - 0.2 && tw <= 3 * STEP + 5.4;
+function whales(F, tw, G, coupleX, w, portrait, layer) {
+  const s0 = 3 * STEP; // walking-clock start of step 4
   const k = tw - s0; if (k < 0 || k > 5.2) return;
-  const coupleX = cx - camX;
   const defs = [
     // A: from the water at the lower left, over their heads, into the water on the right (in front of the pier)
     { layer: 'front', t0: 0.1, dur: 3.2, from: [coupleX - w * (portrait ? 0.3 : 0.34), G + (portrait ? 70 : 40)], to: [coupleX + w * (portrait ? 0.55 : 0.5), G + (portrait ? 60 : 36)], apex: G - (portrait ? 200 : 150), scale: 1.0, seed: 1 },
@@ -6943,52 +7333,55 @@ function whales(F, t, tw, camX, G, cx, w, h, portrait, layer) {
     drawSpout(F, apexP[0] + (d.to[0] > d.from[0] ? 12 : -12), apexP[1] - 6, blowA, d.seed);
   }
 }
-// step 5: deer on the meadow lift their heads; rabbits hop across the path
-function deerAndRabbits(F, t, tw, camX, G) {
-  const s0 = 4 * STEP; if (tw < s0 - 6 || tw > s0 + 14) return;
-  const k = tw - s0;
+// step 5: deer on the meadow lift their heads (their overlay scrolls at 0.92 of the path); rabbits hop across the path
+const deerOn = (tw) => tw >= 4 * STEP - 6 && tw <= 4 * STEP + 14;
+function deer(F, tw, bx, by) {
+  const k = tw - 4 * STEP;
   const herd = [['stag', Z.pier1 + 70, -10], ['doe', Z.pier1 + 92, -8], ['doe', Z.pier1 + 52, -6], ['fawn', Z.pier1 + 104, -5], ['doe', Z.pier1 + 128, -9]];
   herd.forEach(([kind, x, dy], i) => {
     const head = Math.min(1, Math.max(0, (k - 0.3 - i * 0.25) / 0.8));
-    const spr = deerFrame(kind, head, 0);
-    const X = Math.round(x - camX * 0.92), Y = G + dy - 41;
+    const X = x + bx, Y = by + dy - 41;
     if (X < -50 || X > F.w + 10) return;
-    F.draw(spr, X, Y);
+    F.draw(deerFrame(kind, head, 0), X, Y);
   });
+}
+function rabbits(F, tw, bx, by) {
+  const k = tw - 4 * STEP;
   for (let i = 0; i < 4; i += 1) {
     const t0 = 0.4 + i * 0.5, a = k - t0; if (a < 0 || a > 5) continue;
-    const x = Z.pier1 + 40 + i * 14 + a * 22 - camX, y = G + 4 + (i % 2) * 4;
+    const x = Z.pier1 + 40 + i * 14 + a * 22 + bx, y = by + 4 + (i % 2) * 4;
     F.draw(rabbitFrame(Math.floor(a * 8)), Math.round(x), Math.round(y - 11));
   }
 }
-// step 6: birds fly in from beyond the frame and circle the two phoenixes, which meet above the couple
-function birdsAndPhoenixes(F, t, tw, G, w, h, coupleX, portrait) {
+// step 6: doves and magpies fly in from beyond the frame and circle above the couple, then scatter
+function birds(F, t, tw, G, w, h, coupleX, portrait) {
   const s0 = 5 * STEP, k = tw - s0; if (k < -0.2 || k > 9) return;
   const cx = coupleX + 10, cy = G - (portrait ? 150 : 110);
   const ease = (u) => u * u * (3 - 2 * u);
-  // birds: each starts off-screen (left, right, top, or sweeping past close to the camera), joins a ring, then scatters
-  const N = Math.round(42 + w * 0.12);
+  const N = Math.round(14 + w * 0.02);
   for (let i = 0; i < N; i += 1) {
     const h1 = hash2(i, 61, 1), h2 = hash2(i, 62, 1), h3 = hash2(i, 63, 1);
     const kind = h3 < 0.28 ? 'magpie' : 'dove';
     const side = h1 < 0.38 ? -1 : h1 < 0.76 ? 1 : 0;
     const start = side === 0 ? [h2 * w, -20 - h3 * 40] : [side < 0 ? -30 - h2 * 60 : w + 30 + h2 * 60, cy - 60 + h3 * 140];
     const enter = ease(Math.min(1, Math.max(0, (k - h2 * 0.8) / 1.4)));
-    const ang = h1 * 6.283 + k * (1.1 + h2 * 0.6) * (h3 < 0.5 ? 1 : -1), rr = (portrait ? 34 : 48) + h2 * (portrait ? 34 : 70);
+    const ang = h1 * 6.283 + k * (1.1 + h2 * 0.6) * (h3 < 0.5 ? 1 : -1), rr = (portrait ? 40 : 58) + h2 * (portrait ? 30 : 60);
     const ring = [cx + Math.cos(ang) * rr * 1.25, cy + Math.sin(ang) * rr * 0.55];
     const out = ease(Math.min(1, Math.max(0, (k - 3.4 - h3 * 0.6) / 2.4)));
     let x = start[0] + (ring[0] - start[0]) * enter, y = start[1] + (ring[1] - start[1]) * enter;
     x += (ring[0] - cx) * out * 6; y += ((ring[1] - cy) * 3 - 160) * out;
     if (x < -30 || x > w + 30 || y < -30 || y > h + 30) continue;
     const vx = Math.cos(ang + Math.PI / 2) * (h3 < 0.5 ? 1 : -1);
-    const big = hash2(i, 64, 1) < 0.08 ? 2 : 1;
+    const big = hash2(i, 64, 1) < 0.1 ? 2 : 1;
     const spr = birdFrame(kind, Math.floor(t * 12 + i), big);
     F.draw(spr, Math.round(x - spr.w / 2), Math.round(y - spr.h / 2), { flip: (enter < 1 ? (start[0] > ring[0]) : vx < 0) });
   }
-  // phoenixes: enter from the two sides, meet above the couple, circle each other with tails trailing, then soar up
-  const ph = (i) => (tt) => {
-    const kk = tt - (STEP0 + s0);
-    const s = i ? -1 : 1;
+}
+// the two firebirds: in from the two sides, they meet above the couple, circle each other, then soar up
+function firebirdPath(i, cx, cy, w, portrait) {
+  const ease = (u) => u * u * (3 - 2 * u), s = i ? -1 : 1, t0 = STEP0 + 5 * STEP;
+  return (tt) => {
+    const kk = tt - t0;
     const enter = ease(Math.min(1, Math.max(0, kk / 1.4)));
     const a = s * Math.PI / 2 + Math.max(0, kk - 1.0) * 2.2 * s;
     const R = (portrait ? 30 : 46) * (0.6 + 0.4 * enter);
@@ -6999,7 +7392,6 @@ function birdsAndPhoenixes(F, t, tw, G, w, h, coupleX, portrait) {
     y -= rise * (cy + 160); x += rise * s * 40;
     return [x, y];
   };
-  for (let i = 0; i < 2; i += 1) { const alpha = Math.min(1, Math.max(0, (k + 0.2) / 0.5)); drawPhoenix(F, ph(i), t, { variant: i, alpha, phase: i * 0.4 }); }
 }
 
 __e.WEDDING_DUR=WEDDING_DUR;__e.STEP0=STEP0;__e.STEP=STEP;__e.WEDDING_BEATS=WEDDING_BEATS;__e.WEDDING_MOMENTS=WEDDING_MOMENTS;__e.createWedding=createWedding;
