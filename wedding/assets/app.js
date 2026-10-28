@@ -29,17 +29,19 @@ function(__r,__e){// The whole experience: the envelope cover, then a timeline o
 const {createEngine:createEngine,pickQuality:pickQuality}=__r(2);
 const {createCover:createCover}=__r(15);
 const {createRibbon:createRibbon,RIBBON_DUR:RIBBON_DUR}=__r(19);
-const {createBookScene:createBookScene,BOOK_DUR:BOOK_DUR,BOOK_BEATS:BOOK_BEATS}=__r(20);
-const {createPixelStage:createPixelStage}=__r(22);
-const {Buf:Buf}=__r(23);
-const {createCampus:createCampus,CAMPUS_DUR:CAMPUS_DUR}=__r(24);
-const {createOffice:createOffice,OFFICE_DUR:OFFICE_DUR}=__r(27);
-const {createWedding:createWedding,WEDDING_DUR:WEDDING_DUR,WEDDING_BEATS:WEDDING_BEATS,WEDDING_MOMENTS:WEDDING_MOMENTS}=__r(28);
+const {createBookScene:createBookScene,BOOK_DUR:BOOK_DUR,BOOK_BEATS:BOOK_BEATS}=__r(24);
+const {createPixelStage:createPixelStage}=__r(26);
+const {createRunner:createRunner}=__r(20);
+const {coupleRunFrame:coupleRunFrame,RUN_FRAMES:RUN_FRAMES}=__r(22);
+const {Buf:Buf}=__r(21);
+const {createCampus:createCampus,CAMPUS_DUR:CAMPUS_DUR}=__r(27);
+const {createOffice:createOffice,OFFICE_DUR:OFFICE_DUR}=__r(28);
+const {createWedding:createWedding,WEDDING_DUR:WEDDING_DUR,WEDDING_BEATS:WEDDING_BEATS,WEDDING_MOMENTS:WEDDING_MOMENTS}=__r(29);
 
 const CSS = `
 .ws3{position:absolute;inset:0;overflow:hidden;background:#1f0306;font-family:"Noto Serif SC Subset","Songti SC",serif;color:#f6dca4;-webkit-tap-highlight-color:transparent;user-select:none}
 .ws3 canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation}
-.ws3 canvas.ws3-px{pointer-events:none;visibility:hidden}
+.ws3 canvas.ws3-px,.ws3 canvas.ws3-run{pointer-events:none;visibility:hidden}
 .ws3-prompt.off{animation:none;opacity:0}
 .ws3-prompt{position:absolute;left:50%;bottom:calc(9% + env(safe-area-inset-bottom));transform:translateX(-50%);font-size:clamp(15px,2.2vmin,20px);letter-spacing:.5em;padding-left:.5em;color:#f3d18a;text-shadow:0 0 12px rgba(255,190,90,.55);animation:ws3pulse 2.4s ease-in-out infinite;pointer-events:none;transition:opacity .6s}
 @keyframes ws3pulse{0%,100%{opacity:.45}50%{opacity:1}}
@@ -85,9 +87,12 @@ function createStory3D(root, { photos = [], quality = null, onOpen = null, onSta
   // the pixel chapters draw on a canvas laid over the 3D one (the buttons stay above both)
   const stage = createPixelStage(wrap);
   wrap.insertBefore(stage.el, prompt);
+  // the couple running along the ribbon: pixel sprites on their own canvas over the 3D view
+  const runner = createRunner(wrap);
+  wrap.insertBefore(runner.el, prompt);
   const size = () => { const r = wrap.getBoundingClientRect(); return [Math.max(1, Math.round(r.width)), Math.max(1, Math.round(r.height))]; };
-  let [W, H] = size(); eng.setSize(W, H); stage.resize(W, H);
-  const ro = new ResizeObserver(() => { const s = size(); if (s[0] !== W || s[1] !== H) { [W, H] = s; eng.setSize(W, H); stage.resize(W, H); } });
+  let [W, H] = size(); eng.setSize(W, H); stage.resize(W, H); runner.resize(W, H);
+  const ro = new ResizeObserver(() => { const s = size(); if (s[0] !== W || s[1] !== H) { [W, H] = s; eng.setSize(W, H); stage.resize(W, H); runner.resize(W, H); } });
   ro.observe(wrap);
 
   // ---------- chapters: built in calm moments (the cover waiting for a tap or for 开启, the ribbon) ----------
@@ -110,10 +115,14 @@ function createStory3D(root, { photos = [], quality = null, onOpen = null, onSta
     } };
   };
   const ribbonBuilder = { calm: false, step() { ribbon = createRibbon(eng); warm(ribbon.scene, ribbon.camera); return true; } };
+  // the running frames for the ribbon (three outfits), a few at a time
+  const runJobs = []; for (const o of ['school', 'office', 'wedding']) for (let f = 0; f < RUN_FRAMES; f += 1) runJobs.push(() => coupleRunFrame(o, f));
+  let runJob = 0;
+  const runBuilder = { calm: false, step(budget) { const t0 = performance.now(); do { runJobs[runJob](); runJob += 1; } while (runJob < runJobs.length && performance.now() - t0 < budget); return runJob >= runJobs.length; } };
   const bookBuilder = { calm: true, step() { book = createBookScene(eng, { photos }); warm(book.scene, book.camera); return true; } };
   // with reduced motion the story opens on the album, so it is built first
-  const builders = reducedMotion ? [ribbonBuilder, bookBuilder, pixelBuilder('campus'), pixelBuilder('office'), pixelBuilder('wedding')]
-    : [ribbonBuilder, pixelBuilder('campus'), pixelBuilder('office'), pixelBuilder('wedding'), bookBuilder];
+  const builders = reducedMotion ? [ribbonBuilder, bookBuilder, runBuilder, pixelBuilder('campus'), pixelBuilder('office'), pixelBuilder('wedding')]
+    : [ribbonBuilder, runBuilder, pixelBuilder('campus'), pixelBuilder('office'), pixelBuilder('wedding'), bookBuilder];
   let built = 0;
   const stats = { slices: 0, sliceMax: 0, sliceTotal: 0, doneAt: 0 };
   function buildStep(force = false, budget = 6) {
@@ -165,16 +174,18 @@ function createStory3D(root, { photos = [], quality = null, onOpen = null, onSta
     if (!segReady(s.id)) return false;
     if (s.id.startsWith('ribbon')) {
       stage.show(false); canvas.style.visibility = 'visible';
-      const fx = ribbon.update(s.id === 'ribbon1' ? 'intro' : s.id === 'ribbon2' ? 'second' : 'third', t, a);
+      const fx = ribbon.update(s.id === 'ribbon1' ? 'intro' : s.id === 'ribbon2' ? 'second' : 'third', t, a, { runner: runner.metrics, W, H });
       eng.render(ribbon.scene, ribbon.camera, fx);
+      if (fx.runner) runner.draw(fx.runner); else runner.clear();
+      runner.show(true);
     } else if (s.id === 'book') {
-      stage.show(false); canvas.style.visibility = 'visible';
+      stage.show(false); runner.show(false); canvas.style.visibility = 'visible';
       const fx = book.update(Math.min(t, BOOK_DUR), a, idle);
       eng.render(book.scene, book.camera, fx);
     } else {
       const fx = s.id === 'wedding' ? (() => { const f = pixelFx(t, s.dur, 1.0, 0.01); const w = ease(clamp01((t - (s.dur - 1.6)) / 1.6)); f.fade = Math.max(f.fade, w); f.fadeColor = '#fff6e6'; return f; })() : pixelFx(t, s.dur);
       stage.render(px[s.id], t, fx);
-      stage.show(true); canvas.style.visibility = 'hidden';
+      stage.show(true); runner.show(false); canvas.style.visibility = 'hidden';
     }
     return true;
   }
@@ -261,7 +272,7 @@ function createStory3D(root, { photos = [], quality = null, onOpen = null, onSta
     _seek(t) { T = t; phase = t >= TOTAL ? 'end' : 'story'; },
     async _buildAll() { while (built < builders.length) buildStep(true, Infinity); while (eng.compileStep(1e9)); },
     _open() { openEnvelope(); }, _start() { startStory(); }, get _stats() { return { ...stats, built, of: builders.length }; },
-    _renderCover(t) { manual = true; stage.show(false); canvas.style.visibility = 'visible'; const fx = cover.update(t, W / H, pointer); eng.render(cover.scene, cover.camera, fx); }, _render(t) { manual = true; renderStory(t); },
+    _renderCover(t) { manual = true; stage.show(false); runner.show(false); canvas.style.visibility = 'visible'; const fx = cover.update(t, W / H, pointer); eng.render(cover.scene, cover.camera, fx); }, _render(t) { manual = true; renderStory(t); },
   };
 }
 
@@ -4491,13 +4502,19 @@ __e.computeMikkTSpaceTangents=computeMikkTSpaceTangents;__e.mergeGeometries=merg
 /* src/ribbon.js */
 function(__r,__e){// The story ribbon: a long red satin ribbon with gold edges laid across a sea of clouds at dusk, seen from the front,
 // carrying three nodes left to right (campus, workplace, wedding). The nodes hang just in front of the ribbon so
-// nothing passes through them. Segments: 'intro' (the ribbon draws itself, node 1 lights, the camera slowly pushes
-// into it), 'second' (pull back out of node 1 while running-track lanes appear on the ribbon, node 2 lights, push in),
-// 'third' (pull back out of node 2 while a skyline traces itself, node 3 flashes red, push in).
+// nothing passes through them. The couple (pixel sprites, drawn by px/runner.js over the 3D view) runs along the
+// ribbon from node to node, and a wide-angle camera follows them. Segments:
+//   'intro'  the ribbon draws itself; the camera comes down to the start of the ribbon, where they appear and run to
+//            node 1; it lights as they reach it and the camera pushes into it
+//   'second' out of node 1; they hop out and run to node 2, leaving running-track lanes on the ribbon behind them;
+//            halfway their school tracksuits turn into office clothes; node 2 lights; push in
+//   'third'  out of node 2; they run to node 3 leaving a golden skyline behind them; halfway the office clothes turn
+//            into the gown and the tuxedo; node 3 flashes red; push in
 const THREE=__r(3);
 const {clamp:clamp,lerp:lerp,sstep:sstep,smoother:smoother,easeInOut:easeInOut,rng:rng,hash:hash}=__r(16);
+const {RUN_STRIDE:RUN_STRIDE}=__r(20);
 
-const RIBBON_DUR = { intro: 9.5, second: 9, third: 9 };
+const RIBBON_DUR = { intro: 10, second: 10, third: 10 };
 
 function textTex(lines, { w = 1024, h = 256, size = 92, color = '#f6d48a', font = '"Noto Serif SC Subset", "Songti SC", serif', weight = 600 } = {}) {
   const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
@@ -4577,29 +4594,28 @@ function createRibbon(eng) {
     if (i < N) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
   }
   const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); rg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); rg.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); rg.setIndex(idx);
-  const ribbonU = { uReveal: { value: 0 }, uTime: { value: 0 }, uLanes: { value: 0 }, uSky: { value: 0 }, uNode: { value: new THREE.Vector3(0.2, 0.5, 0.8) }, uLen: { value: length } };
+  // uTrail: the stretch of ribbon (in u) carrying running-track lanes (x..y) and the skyline (z..w)
+  const ribbonU = { uReveal: { value: 0 }, uTime: { value: 0 }, uTrail: { value: new THREE.Vector4(-1, -1, -1, -1) }, uLen: { value: length } };
   const ribbonMat = new THREE.MeshPhysicalMaterial({ color: '#c0102a', emissive: new THREE.Color('#6e0816'), emissiveIntensity: 0.9, roughness: 0.32, sheen: 1, sheenRoughness: 0.28, sheenColor: new THREE.Color('#ff7b7b'), clearcoat: 0.5, clearcoatRoughness: 0.18, side: THREE.DoubleSide });
   ribbonMat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, ribbonU);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vRU; uniform float uTime;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvRU = uv; transformed += normal * sin(uv.x * 40.0 - uTime * 1.1) * 0.18;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      varying vec2 vRU; uniform float uReveal, uTime, uLanes, uSky, uLen; uniform vec3 uNode;`)
+      varying vec2 vRU; uniform float uReveal, uTime, uLen; uniform vec4 uTrail;`)
       .replace('#include <map_fragment>', `#include <map_fragment>
         if (vRU.x > uReveal) discard;
         // gold edge borders and a fine woven sheen
         float edge = smoothstep(0.085, 0.07, vRU.y) + smoothstep(0.915, 0.93, vRU.y);
         float weave = 0.5 + 0.5 * sin(vRU.x * uLen * 14.0) * sin(vRU.y * 90.0);
         diffuseColor.rgb *= 0.92 + 0.08 * weave;
-        // running-track lanes after the campus chapter: they spread out from node 1 along the ribbon
-        float dA = abs(vRU.x - uNode.x);
-        float nearA = smoothstep(uLanes * 0.16 + 0.004, uLanes * 0.16 - 0.02, dA) * step(0.001, uLanes);
+        // running-track lanes after the campus chapter: they appear on the ribbon behind the couple as they run
+        float nearA = smoothstep(uTrail.x - 0.012, uTrail.x + 0.006, vRU.x) * smoothstep(uTrail.y + 0.002, uTrail.y - 0.012, vRU.x);
         float lane = 0.0; for (int k = 0; k < 5; k++) { float yy = 0.16 + float(k) * 0.17; lane = max(lane, smoothstep(0.016, 0.006, abs(vRU.y - yy))); }
         float lanePos = vRU.x * uLen; float hash = step(0.92, fract(lanePos * 0.35)) * step(0.16, vRU.y) * step(vRU.y, 0.84);
         float trackA = max(lane, hash * 0.85) * nearA;
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.95, 0.9), trackA);
-        // skyline trace after the office chapter: towers with lit windows rising out from node 2
-        float dB = abs(vRU.x - uNode.y);
-        float nearB = smoothstep(uSky * 0.16 + 0.004, uSky * 0.16 - 0.02, dB) * step(0.001, uSky);
+        // skyline trace after the office chapter: towers with lit windows rising behind them as they run
+        float nearB = smoothstep(uTrail.z - 0.012, uTrail.z + 0.006, vRU.x) * smoothstep(uTrail.w + 0.002, uTrail.w - 0.012, vRU.x);
         float bx = floor(vRU.x * uLen * 0.9); float bh = 0.3 + 0.5 * fract(sin(bx * 12.9898) * 43758.5453);
         float inB = step(vRU.y, bh) * step(0.1, vRU.y);
         float win = step(0.55, fract(vRU.x * uLen * 4.5)) * step(0.5, fract(vRU.y * 26.0)) * inB;
@@ -4669,23 +4685,47 @@ function createRibbon(eng) {
   const rim = new THREE.DirectionalLight('#9fb4ff', 0.8); rim.position.set(-40, 30, 60); scene.add(rim);
   const front = new THREE.PointLight('#ffd6b0', 60, 40, 1.6); scene.add(front);
 
-  // ---------- camera: a front view of the whole ribbon; slow push-ins to a node and pull-backs out of it ----------
+  // ---------- camera ----------
+  // a front view of the whole ribbon; a wide-angle tracking shot that follows the couple; push-ins to a node and
+  // pull-backs out of it
   const cam = new THREE.PerspectiveCamera(36, 1, 0.1, 2000);
   const nodePos = (i) => nodes[i].g.position;
-  const v = new THREE.Vector3(), look = new THREE.Vector3();
   const mid = new THREE.Vector3(-1, 4, 0);
+  const DEG = Math.PI / 180;
   // overview: far enough in front to frame the ribbon end to end on this screen shape
   const overview = (aspect, drift = 0) => { const half = 76 / Math.max(0.55, Math.min(aspect, 2.2)); const d = Math.max(84, half / Math.tan(THREE.MathUtils.degToRad(18)) * (aspect < 0.9 ? 0.55 : 1)); return new THREE.Vector3(mid.x + drift, mid.y + d * 0.16, d); };
   // a point just in front of node i (the end of a push-in): the pearl fills the view
   const close = (i) => nodePos(i).clone().add(new THREE.Vector3(0, 0.35, 5.2));
   const ease = (t) => t * t * (3 - 2 * t);
-  // push from the overview towards node i: a long, slow approach that speeds up only at the end
-  function push(i, k, aspect, drift) {
-    const a = overview(aspect, drift), b = close(i);
-    const e = Math.pow(ease(k), 1.6);
-    v.copy(a).lerp(b, e);
-    look.copy(mid).lerp(nodePos(i), ease(Math.min(1, k * 1.6)));
+  const k01 = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+  const baseFov = (aspect) => 36 * (aspect < 0.9 ? 1.25 : 1);
+
+  // ---------- the couple's run ----------
+  // their sprite (64 art pixels tall) stands for HC world units, so the ribbon passes under their feet at the speed
+  // their legs move; the tracking camera stands exactly far enough that one art pixel is a whole number of screen pixels
+  const HC = 5.5, SPU = 64 / HC; // art pixels per world unit
+  const du = (units) => units / length;
+  const U_START = nearestU(-76);
+  const PLAN = {
+    intro: { cam: [2.4, 1.6], show: 3.8, t0: 4.0, T: 3.0, u0: U_START, u1: nodeU[0] - du(1.5), outfit: 'school', next: null, sweep: null, from: -1, to: 0 },
+    second: { cam: [0, 1.8], show: 1.15, t0: 1.8, T: 6.0, u0: nodeU[0] + du(6), u1: nodeU[1] - du(1.5), outfit: 'school', next: 'office', sweep: [4.0, 1.0], from: 0, to: 1 },
+    third: { cam: [0, 1.8], show: 1.15, t0: 1.8, T: 6.0, u0: nodeU[1] + du(6), u1: nodeU[2] - du(1.5), outfit: 'office', next: 'wedding', sweep: [4.0, 1.0], from: 1, to: 2 },
+  };
+  // distance run after tau seconds: a short acceleration, then a steady pace into the node
+  const runDist = (plan, tau) => { const D = (plan.u1 - plan.u0) * length, A = 0.45, vmax = D / (plan.T - A / 2); if (tau <= 0) return 0; if (tau < A) return (vmax * tau * tau) / (2 * A); return Math.min(D + vmax * 0.6, vmax * (tau - A / 2)); };
+  // the point on the ribbon's centre under their feet (with the satin's slow ripple)
+  const ground = (u, t, out = new THREE.Vector3()) => { const uu = Math.min(1, Math.max(0, u)); out.copy(curve.getPointAt(uu)); const i = Math.min(N, Math.max(0, Math.round(uu * N))); return out.addScaledVector(upAt[i], Math.sin(uu * 40 - t * 1.1) * 0.18 + 0.02); };
+  const trackFov = (aspect) => (aspect < 0.9 ? 70 : 58);
+  // the tracking pose: a little to the left, above and in front of them, looking slightly ahead
+  function trackPose(C, aspect, m, pos, look) {
+    const fov = trackFov(aspect) * DEG;
+    const d = m ? (m.devH * HC) / (m.spriteH * m.s * 2 * Math.tan(fov / 2)) : 40;
+    const el = 26 * DEG, az = -9 * DEG;
+    pos.set(C.x + Math.sin(az) * Math.cos(el) * d, C.y + Math.sin(el) * d + HC * 0.35, C.z + Math.cos(az) * Math.cos(el) * d);
+    look.set(C.x + d * (aspect < 0.9 ? 0.05 : 0.17), C.y + HC * 0.45, C.z);
+    return d;
   }
+
   function lightNode(i, k, t, flash = 0) {
     const n = nodes[i];
     n.pearl.material.emissiveIntensity = k * (i === 2 ? 0.8 + flash * 2.0 : 0.85);
@@ -4697,60 +4737,1041 @@ function createRibbon(eng) {
     n.label.lookAt(cam.position);
     n.med.lookAt(cam.position);
   }
-  /** update(segment, t, aspect) -> fx */
-  function update(seg, t, aspect) {
+  const pA = new THREE.Vector3(), lA = new THREE.Vector3(), pB = new THREE.Vector3(), lB = new THREE.Vector3(), C0 = new THREE.Vector3(), Cn = new THREE.Vector3();
+  const tmp = new THREE.Vector3(), right = new THREE.Vector3();
+  // screen position (css px) of a world point
+  const toScreen = (p, W, H) => { tmp.copy(p).project(cam); return { x: (tmp.x + 1) * 0.5 * W, y: (1 - tmp.y) * 0.5 * H, z: tmp.z }; };
+
+  /** update(segment, t, aspect, { runner: metrics, W, H }) -> fx (with fx.runner: where and how to draw the couple) */
+  function update(seg, t, aspect, opts = {}) {
     ribbonU.uTime.value = t; skyMat.uniforms.uTime.value = t; cloudMat.uniforms.uTime.value = t + (seg === 'second' ? 20 : seg === 'third' ? 40 : 0); clouds2.material.uniforms.uTime.value = cloudMat.uniforms.uTime.value * 1.3 + 5; dustMat.uniforms.uTime.value = t;
     dustMat.uniforms.uPx.value = eng.renderer.getPixelRatio() * eng.size[1] / 900;
     let fade = 0, fadeColor = '#fff3dc';
     nodes.forEach((n) => { n.pearl.material.emissiveIntensity = 0; n.halo.material.opacity = 0; n.label.material.opacity = 0; n.ripples.forEach((m) => { m.material.opacity = 0; }); });
-    const D = RIBBON_DUR[seg];
+    const D = RIBBON_DUR[seg], plan = PLAN[seg], m = opts.runner || null;
+    // where they are on the ribbon
+    const tau = t - plan.t0, dist = runDist(plan, tau);
+    const uC = plan.u0 + dist / length;
+    const arriveT = plan.t0 + plan.T;
+    ground(uC, t, Cn);
+    // camera: [from pose] -> tracking -> push into the next node
+    let fov = baseFov(aspect), pos = pA, look = lA, dTrack = 40;
+    const shownAt = [1, 1, 1];
     if (seg === 'intro') {
-      // the ribbon draws itself from left to right; node 1 lights; a slow push into it
-      const rv = ease(Math.min(1, Math.max(0, (t - 0.3) / 3.2))); ribbonU.uReveal.value = 0.01 + rv * 0.99; ribbonU.uLanes.value = 0; ribbonU.uSky.value = 0;
-      const k = Math.max(0, (t - 4.6) / (D - 4.6));
-      push(0, k, aspect, -4 + t * 0.6);
-      cam.position.copy(v); cam.lookAt(look);
-      lightNode(0, ease(Math.min(1, Math.max(0, (t - 3.3) / 1.2))), t);
-      lightNode(1, 0, t); lightNode(2, 0, t);
-      nodes.forEach((n, i) => { const shown = ease(Math.min(1, Math.max(0, (ribbonU.uReveal.value - n.u + 0.04) / 0.06))); n.g.scale.setScalar(3.4 * Math.max(0.001, shown)); n.cord.visible = shown > 0.5; if (i > 0) { n.pearl.material.emissiveIntensity = 0.22 * shown; n.halo.material.opacity = 0.14 * shown; } });
-      fade = ease(Math.min(1, Math.max(0, (t - (D - 0.9)) / 0.9)));
+      const rv = ease(k01(t, 0.3, 3.2)); ribbonU.uReveal.value = 0.01 + rv * 0.99;
+      ribbonU.uTrail.value.set(-1, -1, -1, -1);
+      nodes.forEach((n, i) => { const shown = ease(Math.min(1, Math.max(0, (ribbonU.uReveal.value - n.u + 0.04) / 0.06))); shownAt[i] = shown; n.g.scale.setScalar(3.4 * Math.max(0.001, shown)); n.cord.visible = shown > 0.5; });
+      fade = ease(k01(t, D - 0.9, 0.9));
     } else {
-      // pull back out of the previous node to the overview while its trace appears, light the next one, push in
-      const from = seg === 'second' ? 0 : 1, to = from + 1;
       ribbonU.uReveal.value = 1;
-      ribbonU.uLanes.value = seg === 'second' ? ease(Math.min(1, Math.max(0, (t - 1.2) / 2.4))) : 1;
-      ribbonU.uSky.value = seg === 'third' ? ease(Math.min(1, Math.max(0, (t - 1.2) / 2.4))) : 0;
-      const back = ease(Math.min(1, t / 3.4));
-      const kIn = Math.max(0, (t - 4.6) / (D - 4.6));
-      if (kIn <= 0) { const a = close(from), b = overview(aspect, 0); v.copy(a).lerp(b, Math.pow(back, 0.7)); look.copy(nodePos(from)).lerp(mid, back); }
-      else push(to, kIn, aspect, 0);
-      cam.position.copy(v); cam.lookAt(look);
-      const flash = to === 2 ? Math.max(0, Math.sin(t * 8)) * ease(Math.min(1, Math.max(0, (t - 3.6) / 0.5))) : 0;
       for (let i = 0; i < 3; i += 1) { nodes[i].g.scale.setScalar(3.4); nodes[i].cord.visible = true; }
-      for (let i = 0; i < from; i += 1) lightNode(i, 1, t);
-      lightNode(from, 1, t); lightNode(to, ease(Math.min(1, Math.max(0, (t - 3.4) / 1.1))), t, flash);
-      if (to === 1) lightNode(2, 0, t);
-      fade = Math.max(1 - ease(Math.min(1, t / 0.8)), ease(Math.min(1, Math.max(0, (t - (D - 0.9)) / 0.9))));
-      if (to === 2) fadeColor = '#ffe2d8';
+      // lanes (second) or a skyline (third) appear on the ribbon behind them as they run
+      const behind = Math.max(plan.u0 - du(4), Math.min(uC - du(1.2), plan.u1));
+      const started = t > plan.t0 + 0.15;
+      if (seg === 'second') ribbonU.uTrail.value.set(nodeU[0] - du(2), started ? behind : nodeU[0] - du(2), -1, -1);
+      else ribbonU.uTrail.value.set(nodeU[0] - du(2), nodeU[1] - du(1), nodeU[1] - du(2), started ? behind : nodeU[1] - du(2));
+      fade = Math.max(1 - ease(k01(t, 0, 0.8)), ease(k01(t, D - 0.9, 0.9)));
+      if (plan.to === 2) fadeColor = '#ffe2d8';
     }
-    cam.position.copy(v); cam.lookAt(look);
-    cam.fov = 36 * (aspect < 0.9 ? 1.25 : 1); cam.aspect = aspect; cam.updateProjectionMatrix();
+    // the tracking pose at the couple's place (before the run: at the start; after: at the node)
+    ground(Math.min(Math.max(uC, plan.u0), plan.u1), t, C0);
+    dTrack = trackPose(C0, aspect, m, pB, lB);
+    const tf = trackFov(aspect);
+    const pushK = k01(t, arriveT + 0.15, D - (arriveT + 0.15));
+    if (pushK > 0) {
+      // push into the node they ran into: a slow start that quickens at the end
+      const e = Math.pow(ease(pushK), 1.5);
+      pos.copy(pB).lerp(close(plan.to), e); look.copy(lB).lerp(nodePos(plan.to), ease(Math.min(1, pushK * 1.5)));
+      fov = lerp(tf, baseFov(aspect), ease(pushK));
+    } else {
+      const k = ease(k01(t, plan.cam[0], plan.cam[1]));
+      if (seg === 'intro') { pA.copy(overview(aspect, -4 + t * 0.6)); lA.copy(mid); }
+      else { pA.copy(close(plan.from)); lA.copy(nodePos(plan.from)); }
+      // a slight handheld sway once the camera follows them
+      const sway = k * 0.6;
+      pB.x += Math.sin(t * 0.9) * 0.25 * sway; pB.y += Math.sin(t * 1.3 + 1) * 0.18 * sway;
+      pos = pA.lerp(pB, k); look = lA.lerp(lB, k);
+      fov = lerp(baseFov(aspect), tf, k);
+    }
+    cam.position.copy(pos); cam.lookAt(look);
+    cam.fov = fov; cam.aspect = aspect; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+    // nodes: visited ones stay lit; the one they are running to lights as they arrive
+    const arriveK = ease(k01(t, arriveT - 0.6, 0.8));
+    const flash = plan.to === 2 ? Math.max(0, Math.sin(t * 8)) * ease(k01(t, arriveT - 0.3, 0.5)) : 0;
+    if (seg === 'intro') {
+      lightNode(0, arriveK, t); lightNode(1, 0, t); lightNode(2, 0, t);
+      // the nodes still ahead glow faintly
+      for (let i = 0; i < 3; i += 1) { const n = nodes[i], dim = (i === 0 ? 1 - arriveK : 1) * shownAt[i]; n.pearl.material.emissiveIntensity = Math.max(n.pearl.material.emissiveIntensity, 0.22 * dim); n.halo.material.opacity = Math.max(n.halo.material.opacity, 0.14 * dim); }
+    }
+    else {
+      for (let i = 0; i <= plan.from; i += 1) lightNode(i, 1, t);
+      lightNode(plan.to, Math.max(0.18, arriveK), t, flash);
+      if (plan.to === 1) lightNode(2, 0, t);
+    }
     cloudMat.uniforms.uCam.value.copy(cam.position);
     front.position.copy(cam.position).add(new THREE.Vector3(0, 3, 0));
     sky.position.copy(cam.position);
-    return { bloom: 0.42, bloomThreshold: 0.95, bloomRadius: 0.6, exposure: 0.95, fade, fadeColor, vignette: 0.42, warm: 0.02, sat: 1.05, contrast: 1.06, ao: 0 };
+    const tracking = pushK <= 0 && t >= plan.cam[0] + plan.cam[1] * 0.6;
+    const fx = { bloom: 0.42, bloomThreshold: 0.95, bloomRadius: 0.6, exposure: 0.95, fade, fadeColor, vignette: 0.42, warm: 0.02, sat: 1.05, contrast: 1.06, ao: 0 };
+    if (tracking || pushK > 0) { fx.blur = 0.55 * (1 - ease(pushK)); fx.focus = dTrack; fx.range = dTrack * 0.55; }
+    // ---- the couple, for the pixel overlay
+    if (opts.W && t >= plan.show && t < arriveT + 0.45) {
+      const W = opts.W, H = opts.H;
+      const g = toScreen(Cn, W, H);
+      const r = { x: g.x, y: g.y, phase: (dist * SPU) / RUN_STRIDE, outfit: plan.outfit, next: null, sweep: 0, alpha: 1, lift: 0, sparkle: 0, t, masks: [] };
+      // appearing: out of the node's pearl (a hop down onto the ribbon), or with a burst of sparkles at the start
+      const since = t - plan.show;
+      if (plan.from >= 0) {
+        const hop = k01(t, plan.show, plan.t0 - plan.show);
+        const pc = toScreen(nodePos(plan.from), W, H);
+        const e = ease(hop);
+        r.x = lerp(pc.x, g.x, e); r.y = lerp(pc.y, g.y, e) - Math.sin(hop * Math.PI) * (H * 0.05);
+        r.alpha = Math.min(1, hop * 4);
+      } else r.alpha = Math.min(1, since / 0.25);
+      r.sparkle = Math.max(0, 1 - since / 1.2);
+      if (plan.next && plan.sweep) { r.next = plan.next; r.sweep = k01(t, plan.sweep[0], plan.sweep[1]); }
+      // running into the next node: a flash, then gone
+      if (t > arriveT - 0.1) { const k = k01(t, arriveT - 0.1, 0.45); r.alpha *= 1 - k; r.sparkle = Math.max(r.sparkle, k); }
+      // pearls hang in front of the ribbon: whatever is behind one is hidden (not the one they are hopping out of)
+      right.setFromMatrixColumn(cam.matrixWorld, 0);
+      nodes.forEach((n, i) => {
+        if (i === plan.from && t < plan.t0 + 0.2) return;
+        const c = toScreen(n.g.position, W, H); if (c.z > 1) return;
+        const e = toScreen(n.g.position.clone().addScaledVector(right, 0.85 * 3.4), W, H);
+        r.masks.push({ x: c.x, y: c.y, r: Math.hypot(e.x - c.x, e.y - c.y) });
+      });
+      fx.runner = r;
+    }
+    return fx;
   }
   return { scene, camera: cam, update, dur: RIBBON_DUR };
 }
 
 __e.RIBBON_DUR=RIBBON_DUR;__e.createRibbon=createRibbon;
 },
+/* src/px/runner.js */
+function(__r,__e){// The couple running along the ribbon between chapters. They are pixel sprites drawn over the 3D ribbon (on their
+// own canvas above the WebGL one) at a whole number of device pixels per art pixel, standing on the screen position
+// of their feet on the ribbon, so the pixels stay crisp while the camera follows them. Also: their shadows, the
+// outfit change while running (a golden line sweeps down; the new clothes appear above it), sparkles when they come
+// out of a node, and the part of them hidden behind a pearl that hangs in front of the ribbon.
+const {Buf:Buf,C:C,BAYER:BAYER}=__r(21);
+const {coupleRunFrame:coupleRunFrame,RUN_FRAMES:RUN_FRAMES,COUPLE_W:COUPLE_W,COUPLE_H:COUPLE_H,ANCHOR:ANCHOR,runStrideOf:runStrideOf}=__r(22);
+const {hash2:hash2}=__r(23);
+
+const PAD = 26; // room around the sprite for sparkles
+const BW = COUPLE_W + PAD * 2, BH = COUPLE_H + PAD * 2;
+const RUN_STRIDE = runStrideOf('groom'); // sprite pixels the body travels per running cycle
+__e.RUN_FRAMES=RUN_FRAMES;
+// the couple's height on screen: a wide shot that still reads them clearly
+const RUN_SCREEN = { landscape: 0.17, portrait: 0.1 };
+
+// put a pixel with its own alpha over a transparent or opaque buffer pixel
+function over(d, i, c) {
+  const ca = c >>> 24; if (!ca) return;
+  const u = d[i], ua = u >>> 24;
+  if (ca === 255 || !ua) { d[i] = c; return; }
+  const a = ca / 255, oa = a + (ua / 255) * (1 - a);
+  const mixc = (sh) => ((((c >>> sh) & 255) * a + ((u >>> sh) & 255) * (ua / 255) * (1 - a)) / oa) | 0;
+  d[i] = (((oa * 255) << 24) | (mixc(16) << 16) | (mixc(8) << 8) | mixc(0)) >>> 0;
+}
+function blitOver(F, src, x, y, rowFrom = 0, rowTo = src.h) {
+  for (let j = Math.max(0, rowFrom); j < Math.min(src.h, rowTo); j += 1) {
+    const Y = y + j; if (Y < 0 || Y >= F.h) continue;
+    for (let i = 0; i < src.w; i += 1) { const v = src.d[j * src.w + i]; if (!(v >>> 24)) continue; const X = x + i; if (X >= 0 && X < F.w) over(F.d, Y * F.w + X, v); }
+  }
+}
+// a soft dithered shadow on the ribbon (translucent pixels)
+function shadow(F, cx, cy, rx, ry, a) {
+  const col = C('#1b1020');
+  for (let y = Math.floor(cy - ry); y <= cy + ry; y += 1) for (let x = Math.floor(cx - rx); x <= cx + rx; x += 1) {
+    const u = (x + 0.5 - cx) / rx, v = (y + 0.5 - cy) / ry, d = u * u + v * v; if (d > 1) continue;
+    const k = a * (d < 0.45 ? 1 : 0.6); if (k < BAYER[((y & 3) << 2) | (x & 3)] * 0.5) continue;
+    over(F.d, y * F.w + x, (((Math.round(k * 255)) << 24) | (col & 0xffffff)) >>> 0);
+  }
+}
+
+function createRunner(parent) {
+  const cv = document.createElement('canvas'); cv.className = 'ws3-run'; parent.appendChild(cv);
+  const g = cv.getContext('2d');
+  const low = document.createElement('canvas'); low.width = BW; low.height = BH; const lg = low.getContext('2d');
+  const F = new Buf(BW, BH);
+  const st = { devW: 1, devH: 1, dpr: 1, portrait: false, s: 1 };
+  let shown = false, vis = null;
+  function resize(cssW, cssH) {
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const devW = Math.max(1, Math.round(cssW * dpr)), devH = Math.max(1, Math.round(cssH * dpr));
+    const portrait = cssW / cssH < 0.9;
+    const s = Math.max(1, Math.round((devH * (portrait ? RUN_SCREEN.portrait : RUN_SCREEN.landscape)) / COUPLE_H));
+    Object.assign(st, { devW, devH, dpr, portrait, s });
+    cv.width = devW; cv.height = devH; cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
+    shown = true; clear();
+  }
+  function clear() { if (shown) { g.clearRect(0, 0, st.devW, st.devH); shown = false; } }
+  // s: { x, y (css px of the ground point under the groom), phase (running cycles), outfit, next, sweep (0..1),
+  //      alpha, lift (css px the sprite is raised, for the hop out of a node), sparkle (0..1), t, masks: [{x, y, r}] }
+  function draw(s) {
+    g.clearRect(0, 0, st.devW, st.devH); shown = true;
+    if (!s || s.alpha <= 0.001) return;
+    F.clear(0);
+    const ax = PAD + ANCHOR[0], ay = PAD + ANCHOR[1];
+    const lift = Math.round((s.lift || 0) * st.dpr / st.s);
+    // shadows on the ribbon stay on the ground while the body is in the air
+    const sh = 1 - Math.min(1, lift / 14);
+    if (sh > 0.05) { shadow(F, ax + 2, ay + 1, 9, 1.7, 0.42 * sh); shadow(F, ax + 17, ay + 3, 9, 1.7, 0.42 * sh); }
+    const f = ((Math.floor(s.phase * RUN_FRAMES) % RUN_FRAMES) + RUN_FRAMES) % RUN_FRAMES;
+    const a = coupleRunFrame(s.outfit, f).buf;
+    const top = PAD - lift;
+    if (s.next && s.sweep > 0) {
+      // the new clothes above the line, the old ones below it
+      const b = coupleRunFrame(s.next, f).buf;
+      const line = Math.round(s.sweep * (COUPLE_H + 6)) - 3;
+      blitOver(F, b, PAD, top, 0, line);
+      blitOver(F, a, PAD, top, line, COUPLE_H);
+      if (s.sweep < 1) {
+        // the golden line across the figures, with a glint running along it
+        const Y = top + line; let x0 = BW, x1 = -1;
+        for (const src of [a, b]) for (let i = 0; i < src.w; i += 1) for (let dj = -1; dj <= 1; dj += 1) { const j = line + dj; if (j < 0 || j >= src.h) continue; if (src.d[j * src.w + i] >>> 24) { x0 = Math.min(x0, PAD + i); x1 = Math.max(x1, PAD + i); } }
+        if (x1 >= x0) for (let x = x0 - 2; x <= x1 + 2; x += 1) { over(F.d, Y * BW + x, C('#fff2b0')); if (Y - 1 >= 0) over(F.d, (Y - 1) * BW + x, C('#ffd870', 160)); }
+      }
+    } else blitOver(F, a, PAD, top);
+    // sparkles: four-point stars twinkling around them (on appearing, and during the outfit change)
+    const amt = Math.max(s.sparkle || 0, s.next && s.sweep > 0 && s.sweep < 1 ? 1 : 0);
+    if (amt > 0.01) {
+      const n = Math.round(26 * amt);
+      for (let i = 0; i < n; i += 1) {
+        const h1 = hash2(i, 31, 7), h2 = hash2(i, 32, 7), life = (s.t * (0.9 + h1) + h2) % 1;
+        const x = Math.round(PAD + 6 + h1 * (COUPLE_W - 8)), y = Math.round(top + COUPLE_H - 4 - life * (COUPLE_H + 10) + Math.sin(s.t * 3 + i) * 2);
+        if (x < 1 || y < 1 || x >= BW - 1 || y >= BH - 1) continue;
+        const c = C(i % 3 ? '#ffe9a0' : '#ffffff'), tw = Math.floor(s.t * 10 + i) % 4;
+        over(F.d, y * BW + x, c);
+        if (tw < 2) { over(F.d, y * BW + x - 1, C('#ffe9a0', 170)); over(F.d, y * BW + x + 1, C('#ffe9a0', 170)); over(F.d, (y - 1) * BW + x, C('#ffe9a0', 170)); over(F.d, (y + 1) * BW + x, C('#ffe9a0', 170)); }
+      }
+    }
+    lg.putImageData(F.img, 0, 0);
+    g.imageSmoothingEnabled = false;
+    g.globalAlpha = Math.min(1, s.alpha);
+    const S = st.s, X = Math.round(s.x * st.dpr - ax * S), Y = Math.round(s.y * st.dpr - ay * S);
+    g.drawImage(low, 0, 0, BW, BH, X, Y, BW * S, BH * S);
+    g.globalAlpha = 1;
+    // a pearl hanging in front of the ribbon hides the part of them behind it
+    if (s.masks && s.masks.length) {
+      g.globalCompositeOperation = 'destination-out';
+      for (const m of s.masks) { g.beginPath(); g.arc(m.x * st.dpr, m.y * st.dpr, m.r * st.dpr, 0, Math.PI * 2); g.fill(); }
+      g.globalCompositeOperation = 'source-over';
+    }
+  }
+  return {
+    el: cv, resize, draw, clear,
+    // what the ribbon camera needs to make the couple exactly a whole number of pixels per art pixel
+    get metrics() { return { s: st.s, devH: st.devH, portrait: st.portrait, spriteH: COUPLE_H }; },
+    show(v) { if (v !== vis) { vis = v; cv.style.visibility = v ? 'visible' : 'hidden'; } if (!v) clear(); },
+  };
+}
+
+__e.RUN_STRIDE=RUN_STRIDE;__e.RUN_SCREEN=RUN_SCREEN;__e.createRunner=createRunner;
+},
+/* src/px/core.js */
+function(__r,__e){// Pixel-art toolkit: an RGBA buffer with crisp primitives (no anti-aliasing), colour ramps, ordered dithering,
+// sprites as offscreen canvases, and a display that scales a low-resolution frame by a whole number of device
+// pixels so every art pixel is the same size on screen.
+
+// colours are 32-bit ABGR (the byte order of ImageData on little-endian machines)
+const cache = new Map(), cacheA = new Map();
+const pack = (hex, a) => { const n = parseInt(hex.slice(1), 16); return (((a & 255) << 24) | ((n & 255) << 16) | (n & 0xff00) | ((n >> 16) & 255)) >>> 0; };
+function C(hex, a = 255) {
+  if (a === 255) { let v = cache.get(hex); if (v === undefined) { v = pack(hex, 255); cache.set(hex, v); } return v; }
+  const k = hex + a;
+  let v = cacheA.get(k);
+  if (v === undefined) { v = pack(hex, a); cacheA.set(k, v); }
+  return v;
+}
+const CLEAR = 0;
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+// Time-sliced preparation of a chapter: a generator that builds the background layers (yielding between chunks),
+// then a list of small jobs (sprites drawn ahead into their caches). step(budgetMs) works until the budget is spent
+// and returns true once everything is done; layers() finishes just the layers (when a frame needs them right now).
+function preparer(makeGen, jobs = []) {
+  let g = null, genDone = false, j = 0;
+  return {
+    layers() { while (!genDone) { if (!g) g = makeGen(); if (g.next().done) genDone = true; } },
+    // every call makes progress (at least one chunk or one job), however small the budget
+    step(budget = Infinity) {
+      const t0 = now(); let worked = false;
+      while (!genDone) { if (!g) g = makeGen(); worked = true; if (g.next().done) { genDone = true; break; } if (now() - t0 >= budget) return false; }
+      while (j < jobs.length) { if (worked && now() - t0 >= budget) return false; jobs[j](); j += 1; worked = true; }
+      return true;
+    },
+    get layersDone() { return genDone; },
+    get done() { return genDone && j >= jobs.length; },
+  };
+}
+const hexToRgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const rgbToHex = (r, g, b) => '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+function mix(a, b, t) { const A = hexToRgb(a), B = hexToRgb(b); return rgbToHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t); }
+// a four-step ramp with hue-shifted shadows (towards violet) and warm highlights, as pixel artists paint them
+function ramp(base, { shadow = '#3a2050', light = '#fff1c8', k = 1 } = {}) {
+  return { hi: mix(base, light, 0.32 * k), base, lo: mix(base, shadow, 0.3 * k), lo2: mix(base, shadow, 0.55 * k) };
+}
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+const dith = (x, y, t) => t > BAYER[((y & 3) << 2) | (x & 3)];
+
+class Buf {
+  constructor(w, h) { this.w = w; this.h = h; this.img = new ImageData(Math.max(1, w), Math.max(1, h)); this.d = new Uint32Array(this.img.data.buffer); }
+  clear(c = 0) { this.d.fill(c); return this; }
+  inside(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
+  get(x, y) { return this.inside(x, y) ? this.d[y * this.w + x] : 0; }
+  px(x, y, c) { x |= 0; y |= 0; if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.d[y * this.w + x] = c; }
+  rect(x, y, w, h, c) {
+    x |= 0; y |= 0; w |= 0; h |= 0;
+    const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(this.w, x + w), y1 = Math.min(this.h, y + h);
+    for (let j = y0; j < y1; j += 1) this.d.fill(c, j * this.w + x0, j * this.w + x1);
+    return this;
+  }
+  hline(x0, x1, y, c) { if (x1 < x0) [x0, x1] = [x1, x0]; this.rect(x0, y, x1 - x0 + 1, 1, c); }
+  vline(x, y0, y1, c) { if (y1 < y0) [y0, y1] = [y1, y0]; this.rect(x, y0, 1, y1 - y0 + 1, c); }
+  line(x0, y0, x1, y1, c) {
+    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let e = dx + dy;
+    for (;;) { this.px(x0, y0, c); if (x0 === x1 && y0 === y1) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; } }
+  }
+  // filled shapes sample pixel centres, so edges are clean stair-steps
+  ellipse(cx, cy, rx, ry, c) {
+    const x0 = Math.floor(cx - rx), x1 = Math.ceil(cx + rx), y0 = Math.floor(cy - ry), y1 = Math.ceil(cy + ry);
+    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) { const u = (x + 0.5 - cx) / rx, v = (y + 0.5 - cy) / ry; if (u * u + v * v <= 1) this.px(x, y, c); }
+  }
+  circle(cx, cy, r, c) { this.ellipse(cx, cy, r, r, c); }
+  poly(pts, c) {
+    let y0 = Infinity, y1 = -Infinity; for (const p of pts) { y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+    for (let y = Math.floor(y0); y <= Math.ceil(y1); y += 1) {
+      const yc = y + 0.5, xs = [];
+      for (let i = 0, n = pts.length; i < n; i += 1) {
+        const a = pts[i], b = pts[(i + 1) % n];
+        if ((a[1] <= yc && b[1] > yc) || (b[1] <= yc && a[1] > yc)) xs.push(a[0] + ((yc - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
+      }
+      xs.sort((p, q) => p - q);
+      for (let k = 0; k + 1 < xs.length; k += 2) { const xa = Math.ceil(xs[k] - 0.5), xb = Math.floor(xs[k + 1] - 0.5); if (xb >= xa) this.rect(xa, y, xb - xa + 1, 1, c); }
+    }
+  }
+  // capsule (a thick segment with round ends)
+  capsule(ax, ay, bx, by, r, c) {
+    const x0 = Math.floor(Math.min(ax, bx) - r - 1), x1 = Math.ceil(Math.max(ax, bx) + r + 1), y0 = Math.floor(Math.min(ay, by) - r - 1), y1 = Math.ceil(Math.max(ay, by) + r + 1);
+    const vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1e-9;
+    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) {
+      const px = x + 0.5 - ax, py = y + 0.5 - ay; const t = Math.max(0, Math.min(1, (px * vx + py * vy) / L));
+      const dx = px - vx * t, dy = py - vy * t; if (dx * dx + dy * dy <= r * r) this.px(x, y, c);
+    }
+  }
+  // copy another buffer (transparent pixels skipped); flip mirrors horizontally
+  blit(src, x, y, flip = false) {
+    x |= 0; y |= 0;
+    for (let j = 0; j < src.h; j += 1) {
+      const yy = y + j; if (yy < 0 || yy >= this.h) continue;
+      for (let i = 0; i < src.w; i += 1) {
+        const v = src.d[j * src.w + (flip ? src.w - 1 - i : i)]; if (!(v >>> 24)) continue;
+        const xx = x + i; if (xx >= 0 && xx < this.w) this.d[yy * this.w + xx] = v;
+      }
+    }
+  }
+  // a one-pixel outline around everything opaque (4-neighbourhood), in one colour
+  outline(c) {
+    const { w, h, d } = this, o = new Uint32Array(d);
+    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) {
+      if (d[y * w + x] >>> 24) continue;
+      if ((x > 0 && d[y * w + x - 1] >>> 24) || (x < w - 1 && d[y * w + x + 1] >>> 24) || (y > 0 && d[(y - 1) * w + x] >>> 24) || (y < h - 1 && d[(y + 1) * w + x] >>> 24)) o[y * w + x] = c;
+    }
+    d.set(o); return this;
+  }
+  // opaque runs per row, so large layers can be copied a row-span at a time; semi-transparent pixels kept apart
+  spans() {
+    if (this._sp) return this._sp;
+    const { w, h, d } = this, rows = [], soft = [];
+    for (let y = 0; y < h; y += 1) {
+      const r = []; let x = 0;
+      while (x < w) {
+        while (x < w && (d[y * w + x] >>> 24) !== 255) { if (d[y * w + x] >>> 24) soft.push(y * w + x); x += 1; }
+        const x0 = x; while (x < w && (d[y * w + x] >>> 24) === 255) x += 1;
+        if (x > x0) r.push(x0, x);
+      }
+      rows.push(r);
+    }
+    this._sp = { rows, soft };
+    return this._sp;
+  }
+  // draw src at (x, y) using its spans; alpha < 1 blends the whole sprite
+  draw(src, x, y, { flip = false, alpha = 1, tint = null } = {}) {
+    x = Math.round(x); y = Math.round(y);
+    const { rows, soft } = src.spans(), W = this.w, H = this.h, sw = src.w, d = this.d, sd = src.d;
+    if (y >= H || y + src.h <= 0 || x >= W || x + sw <= 0) return;
+    if (!flip && alpha >= 1 && !tint) {
+      for (let j = Math.max(0, -y), j1 = Math.min(src.h, H - y); j < j1; j += 1) {
+        const r = rows[j], row = (y + j) * W, srow = j * sw;
+        for (let k = 0; k < r.length; k += 2) {
+          let a = r[k], b = r[k + 1]; if (x + a < 0) a = -x; if (x + b > W) b = W - x; if (b <= a) continue;
+          d.set(sd.subarray(srow + a, srow + b), row + x + a);
+        }
+      }
+      for (const i of soft) { const sx = i % sw, sy = (i / sw) | 0, X = x + sx, Y = y + sy; if (X >= 0 && Y >= 0 && X < W && Y < H) d[Y * W + X] = blend(d[Y * W + X], sd[i], 1); }
+      return;
+    }
+    for (let j = Math.max(0, -y), j1 = Math.min(src.h, H - y); j < j1; j += 1) {
+      for (let i = 0; i < sw; i += 1) {
+        const v = sd[j * sw + (flip ? sw - 1 - i : i)]; if (!(v >>> 24)) continue;
+        const X = x + i; if (X < 0 || X >= W) continue;
+        const o = (y + j) * W + X; d[o] = blend(d[o], tint ? tintC(v, tint) : v, alpha);
+      }
+    }
+  }
+  // put one pixel blended over what is there
+  bpx(x, y, c, a = 1) { x |= 0; y |= 0; if (x >= 0 && y >= 0 && x < this.w && y < this.h) { const i = y * this.w + x; this.d[i] = blend(this.d[i], c, a); } }
+  brect(x, y, w, h, c, a = 1) { for (let j = Math.max(0, y | 0); j < Math.min(this.h, (y + h) | 0); j += 1) for (let i = Math.max(0, x | 0); i < Math.min(this.w, (x + w) | 0); i += 1) this.d[j * this.w + i] = blend(this.d[j * this.w + i], c, a); }
+  map(fn) { const { w, h, d } = this; for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) { const i = y * w + x; const v = fn(d[i], x, y); if (v !== undefined) d[i] = v; } return this; }
+  toCanvas(cv) { const c = cv || mkCanvas(this.w, this.h); c.getContext('2d').putImageData(this.img, 0, 0); return c; }
+}
+// blend colour c (with its own alpha) over u, times a
+function blend(u, c, a = 1) {
+  const ca = ((c >>> 24) / 255) * a; if (ca >= 0.999) return c | 0xff000000; if (ca <= 0.001) return u;
+  const r = (c & 255) * ca + (u & 255) * (1 - ca), g = ((c >> 8) & 255) * ca + ((u >> 8) & 255) * (1 - ca), b = ((c >> 16) & 255) * ca + ((u >> 16) & 255) * (1 - ca);
+  return ((255 << 24) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0;
+}
+// tint: [hex, amount] pushes a colour towards hex
+function tintC(v, tint) { const t = C(tint[0]), k = tint[1]; const r = (v & 255) * (1 - k) + (t & 255) * k, g = ((v >> 8) & 255) * (1 - k) + ((t >> 8) & 255) * k, b = ((v >> 16) & 255) * (1 - k) + ((t >> 16) & 255) * k; return ((v & 0xff000000) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0; }
+function mkCanvas(w, h) {
+  if (typeof document !== 'undefined') { const c = document.createElement('canvas'); c.width = Math.max(1, w); c.height = Math.max(1, h); return c; }
+  return new OffscreenCanvas(Math.max(1, w), Math.max(1, h));
+}
+function ctx2d(c) { const g = c.getContext('2d'); g.imageSmoothingEnabled = false; return g; }
+
+// A painter that works through masks: each part is a set of pixels with an owner id, so a part can be shaded by its
+// own edges (light from the upper left) and outlined only where it overlaps what was drawn before it.
+class Painter {
+  constructor(w, h, ox = 0, oy = 0) { this.b = new Buf(w, h); this.own = new Int16Array(w * h); this.ox = ox; this.oy = oy; this.n = 0; }
+  // draw a part: inside(x, y) in part coordinates (origin at ox, oy), colours {hi, base, lo, lo2}, optional detail(x, y) -> hex|null
+  part(inside, bbox, col, { line = null, light = [-1, -1], shade = true, detail = null, rim = 1, alpha = 255 } = {}) {
+    const id = ++this.n, { b, own, ox, oy } = this, w = b.w;
+    const x0 = Math.max(0, Math.floor(bbox[0] + ox)), x1 = Math.min(b.w - 1, Math.ceil(bbox[2] + ox)), y0 = Math.max(0, Math.floor(bbox[1] + oy)), y1 = Math.min(b.h - 1, Math.ceil(bbox[3] + oy));
+    const m = new Uint8Array((x1 - x0 + 3) * (y1 - y0 + 3)), mw = x1 - x0 + 3;
+    if (inside.pts) {
+      // polygon: scanline fill at pixel centres (much faster than testing every pixel)
+      const pts = inside.pts;
+      for (let y = y0; y <= y1; y += 1) {
+        const yc = y + 0.5 - oy, xs = [];
+        for (let i = 0, n = pts.length; i < n; i += 1) { const a = pts[i], b = pts[(i + 1) % n]; if ((a[1] <= yc && b[1] > yc) || (b[1] <= yc && a[1] > yc)) xs.push(a[0] + ((yc - a[1]) / (b[1] - a[1])) * (b[0] - a[0])); }
+        xs.sort((p, q) => p - q);
+        for (let k = 0; k + 1 < xs.length; k += 2) { const xa = Math.max(x0, Math.ceil(xs[k] + ox - 0.5)), xb = Math.min(x1, Math.floor(xs[k + 1] + ox - 0.5)); for (let x = xa; x <= xb; x += 1) m[(y - y0 + 1) * mw + (x - x0 + 1)] = 1; }
+      }
+    } else for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) if (inside(x + 0.5 - ox, y + 0.5 - oy)) m[(y - y0 + 1) * mw + (x - x0 + 1)] = 1;
+    const at = (x, y) => (x < x0 - 1 || x > x1 + 1 || y < y0 - 1 || y > y1 + 1 ? 0 : m[(y - y0 + 1) * mw + (x - x0 + 1)]);
+    const C0 = { hi: C(col.hi), base: C(col.base), lo: C(col.lo), lo2: C(col.lo2) };
+    const lineC = line ? C(line) : C(col.lo2);
+    // outline where the part meets something drawn earlier
+    if (line !== false) for (let y = y0 - 1; y <= y1 + 1; y += 1) for (let x = x0 - 1; x <= x1 + 1; x += 1) {
+      if (x < 0 || y < 0 || x >= w || y >= b.h || at(x, y)) continue;
+      if (!(at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1))) continue;
+      const i = y * w + x; if (own[i]) { b.d[i] = lineC; own[i] = id; }
+    }
+    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) {
+      if (!at(x, y)) continue;
+      let c = C0.base;
+      if (shade) {
+        const lx = light[0], ly = light[1];
+        const toLight = !at(x + lx, y) || !at(x, y + ly), away = !at(x - lx, y) || !at(x, y - ly);
+        const away2 = rim > 1 && (!at(x - 2 * lx, y) || !at(x, y - 2 * ly));
+        if (away) c = C0.lo; else if (away2) c = C0.lo; else if (toLight) c = C0.hi;
+      }
+      if (detail) { const dc = detail(x + 0.5 - ox, y + 0.5 - oy, c === C0.hi ? 1 : c === C0.lo ? -1 : 0); if (dc) c = typeof dc === 'number' ? dc : C(dc); }
+      const i = y * w + x;
+      if (alpha < 255) {
+        // sheer: blend over what is already there; over nothing, keep it see-through
+        const u = b.d[i], a = alpha / 255;
+        if (u >>> 24) { const r = ((c & 255) * a + (u & 255) * (1 - a)) | 0, g = (((c >> 8) & 255) * a + ((u >> 8) & 255) * (1 - a)) | 0, bl = (((c >> 16) & 255) * a + ((u >> 16) & 255) * (1 - a)) | 0; c = ((255 << 24) | (bl << 16) | (g << 8) | r) >>> 0; }
+        else c = ((alpha << 24) | (c & 0xffffff)) >>> 0;
+      }
+      b.d[i] = c; own[i] = id;
+    }
+    return id;
+  }
+  // hand-placed pixels (string map) at a part-coordinate position
+  map(rows, x, y, pal, flip = false) {
+    const { b, own, ox, oy } = this; const id = ++this.n;
+    rows.forEach((row, j) => { for (let i = 0; i < row.length; i += 1) { const ch = row[flip ? row.length - 1 - i : i]; const col = pal[ch]; if (!col) continue; const X = Math.round(x + ox) + i, Y = Math.round(y + oy) + j; if (b.inside(X, Y)) { b.d[Y * b.w + X] = C(col); own[Y * b.w + X] = id; } } });
+    return id;
+  }
+  dot(x, y, hex) { const X = Math.floor(x + this.ox), Y = Math.floor(y + this.oy); if (this.b.inside(X, Y)) { this.b.d[Y * this.b.w + X] = C(hex); this.own[Y * this.b.w + X] = this.n; } }
+}
+
+// geometry helpers for part shapes (all in part coordinates)
+const S = {
+  capsule: (ax, ay, bx, by, r) => { const vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1e-9; return [(x, y) => { const px = x - ax, py = y - ay, t = Math.max(0, Math.min(1, (px * vx + py * vy) / L)); const dx = px - vx * t, dy = py - vy * t; return dx * dx + dy * dy <= r * r; }, [Math.min(ax, bx) - r - 1, Math.min(ay, by) - r - 1, Math.max(ax, bx) + r + 1, Math.max(ay, by) + r + 1]]; },
+  // tapered limb: radius ra at a, rb at b
+  taper: (ax, ay, bx, by, ra, rb) => { const vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1e-9; const R = Math.max(ra, rb); return [(x, y) => { const px = x - ax, py = y - ay, t = Math.max(0, Math.min(1, (px * vx + py * vy) / L)); const dx = px - vx * t, dy = py - vy * t, r = ra + (rb - ra) * t; return dx * dx + dy * dy <= r * r; }, [Math.min(ax, bx) - R - 1, Math.min(ay, by) - R - 1, Math.max(ax, bx) + R + 1, Math.max(ay, by) + R + 1]]; },
+  ellipse: (cx, cy, rx, ry, rot = 0) => { const c = Math.cos(rot), s = Math.sin(rot); const R = Math.max(rx, ry); return [(x, y) => { const dx = x - cx, dy = y - cy; const u = (dx * c + dy * s) / rx, v = (-dx * s + dy * c) / ry; return u * u + v * v <= 1; }, [cx - R - 1, cy - R - 1, cx + R + 1, cy + R + 1]]; },
+  poly: (pts) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } const f = (x, y) => { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside; } return inside; }; f.pts = pts; return [f, [x0 - 1, y0 - 1, x1 + 1, y1 + 1]]; },
+  union: (...shapes) => [(x, y) => shapes.some((s) => s[0](x, y)), [Math.min(...shapes.map((s) => s[1][0])), Math.min(...shapes.map((s) => s[1][1])), Math.max(...shapes.map((s) => s[1][2])), Math.max(...shapes.map((s) => s[1][3]))]],
+  minus: (a, b) => [(x, y) => a[0](x, y) && !b[0](x, y), a[1]],
+  clipY: (a, ymin, ymax) => [(x, y) => y >= ymin && y <= ymax && a[0](x, y), a[1]],
+};
+
+// The display: one low-resolution canvas the scenes draw into, shown through a full-resolution canvas scaled by a whole
+// number of device pixels (crisp in every browser, no CSS image-rendering needed).
+function createDisplay(parent, { targetH = 216, targetPortraitW = 162 } = {}) {
+  const out = document.createElement('canvas');
+  out.className = 'ws3-px';
+  parent.appendChild(out);
+  const og = out.getContext('2d');
+  const low = mkCanvas(1, 1);
+  let g = ctx2d(low);
+  const st = { w: 1, h: 1, s: 1, ox: 0, oy: 0, devW: 1, devH: 1, cssW: 1, cssH: 1 };
+  function resize(cssW, cssH) {
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const devW = Math.max(1, Math.round(cssW * dpr)), devH = Math.max(1, Math.round(cssH * dpr));
+    const portrait = cssW / cssH < 0.9;
+    const s = Math.max(1, portrait ? Math.round(devW / targetPortraitW) : Math.round(devH / targetH));
+    const w = Math.ceil(devW / s), h = Math.ceil(devH / s);
+    if (w === st.w && h === st.h && s === st.s && devW === st.devW && devH === st.devH) return st;
+    Object.assign(st, { w, h, s, devW, devH, cssW, cssH, ox: Math.floor((devW - w * s) / 2), oy: Math.floor((devH - h * s) / 2), portrait });
+    out.width = devW; out.height = devH; out.style.width = cssW + 'px'; out.style.height = cssH + 'px';
+    low.width = w; low.height = h; g = ctx2d(low);
+    return st;
+  }
+  // show the low-resolution frame; mosaic > 1 shows it in coarser blocks (for transitions)
+  const tmp = mkCanvas(1, 1);
+  function present(mosaic = 1, fade = 0, fadeColor = '#fff3dc') {
+    og.imageSmoothingEnabled = false;
+    if (mosaic > 1.01) {
+      const m = Math.max(1, Math.round(mosaic)), tw = Math.ceil(st.w / m), th = Math.ceil(st.h / m);
+      if (tmp.width !== tw || tmp.height !== th) { tmp.width = tw; tmp.height = th; }
+      const tg = tmp.getContext('2d'); tg.imageSmoothingEnabled = true; tg.clearRect(0, 0, tw, th); tg.drawImage(low, 0, 0, tw, th);
+      og.drawImage(tmp, 0, 0, tw, th, st.ox, st.oy, tw * m * st.s, th * m * st.s);
+    } else og.drawImage(low, 0, 0, st.w, st.h, st.ox, st.oy, st.w * st.s, st.h * st.s);
+    if (fade > 0.001) { og.globalAlpha = Math.min(1, fade); og.fillStyle = fadeColor; og.fillRect(0, 0, st.devW, st.devH); og.globalAlpha = 1; }
+  }
+  return { el: out, st, resize, present, get g() { return g; }, low };
+}
+
+__e.C=C;__e.CLEAR=CLEAR;__e.preparer=preparer;__e.hexToRgb=hexToRgb;__e.rgbToHex=rgbToHex;__e.mix=mix;__e.ramp=ramp;__e.BAYER=BAYER;__e.dith=dith;__e.Buf=Buf;__e.blend=blend;__e.mkCanvas=mkCanvas;__e.ctx2d=ctx2d;__e.Painter=Painter;__e.S=S;__e.createDisplay=createDisplay;
+},
+/* src/px/people.js */
+function(__r,__e){// The couple as pixel sprites, drawn from a small skeleton so the walk has as many in-between frames as we like.
+// Side view facing right (a mirrored copy faces left). Three outfits: school (Shenzhen tracksuit uniforms), office
+// (navy suit / beige blazer and pencil skirt) and wedding (tuxedo / gown with train and veil). Everything is drawn
+// through the Painter, which shades each part from its own edges (light from the upper left) and draws a contour
+// line only where a part overlaps an earlier one; the silhouette gets one dark outline at the end.
+const {Painter:Painter,S:S,ramp:ramp,C:C,mix:mix,Buf:Buf}=__r(21);
+
+const INK = '#2a1a2c';
+const R = (h, o) => ramp(h, o);
+const deg = Math.PI / 180;
+
+// ---------------------------------------------------------------- gait
+// one leg over its own cycle: [phase, thigh angle (forward +), knee flexion, foot pitch (toes up +)]
+const LEG = [
+  [0.0, 21, 3, 14], [0.125, 15, 15, 2], [0.25, 3, 8, 0], [0.375, -11, 3, -2],
+  [0.5, -19, 12, -26], [0.625, -11, 40, -24], [0.75, 7, 56, -8], [0.875, 19, 24, 6],
+];
+function cyc(keys, p, k) {
+  p = ((p % 1) + 1) % 1;
+  let i = 0; while (i < keys.length - 1 && keys[i + 1][0] <= p) i += 1;
+  const a = keys[i], b = keys[(i + 1) % keys.length], pb = i + 1 < keys.length ? b[0] : 1;
+  // periodic Catmull-Rom through the neighbouring keys for smooth velocities
+  const a0 = keys[(i - 1 + keys.length) % keys.length], b1 = keys[(i + 2) % keys.length];
+  const u = (p - a[0]) / (pb - a[0]);
+  const P0 = a0[k], P1 = a[k], P2 = b[k], P3 = b1[k];
+  return 0.5 * (2 * P1 + (-P0 + P2) * u + (2 * P0 - 5 * P1 + 4 * P2 - P3) * u * u + (-P0 + 3 * P1 - 3 * P2 + P3) * u * u * u);
+}
+// body measures (pixels)
+const BODY = {
+  groom: { thigh: 10, shin: 9.2, ankle: 1.4, foot: 4.6, torso: 12.6, neck: 1.2, head: 5.7, upper: 7, fore: 6.4, legR: [2.15, 1.55], armR: [1.4, 1.2] },
+  bride: { thigh: 9.4, shin: 8.7, ankle: 1.3, foot: 4.0, torso: 11.6, neck: 1.2, head: 5.6, upper: 6.4, fore: 5.9, legR: [1.95, 1.35], armR: [1.35, 1.15] },
+};
+function legPose(B, p, keys = LEG) {
+  const th = cyc(keys, p, 1) * deg, kn = cyc(keys, p, 2) * deg, ft = cyc(keys, p, 3) * deg;
+  const kx = Math.sin(th) * B.thigh, ky = Math.cos(th) * B.thigh;
+  const sa = th - kn; const ax = kx + Math.sin(sa) * B.shin, ay = ky + Math.cos(sa) * B.shin;
+  return { th, kn, ft, knee: [kx, ky], ankle: [ax, ay], ext: ay + B.ankle };
+}
+// pose for a walk phase (0..1). Coordinates relative to the point on the ground below the hip; y up is negative.
+function walkPose(who, phase, { swing = 1, stride = 1, lean = 2.5 } = {}) {
+  const B = BODY[who];
+  const sc = (l) => ({ ...l, knee: [l.knee[0] * stride, l.knee[1]], ankle: [l.ankle[0] * stride, l.ankle[1]] });
+  const L = sc(legPose(B, phase)), Rr = sc(legPose(B, phase + 0.5));
+  const hipY = -Math.max(L.ext, Rr.ext);
+  const leg = (l) => {
+    const knee = [l.knee[0], hipY + l.knee[1]], ankle = [l.ankle[0], hipY + l.ankle[1]];
+    const toe = [ankle[0] + Math.cos(l.ft) * B.foot, ankle[1] + B.ankle - Math.sin(l.ft) * B.foot * 0.9];
+    const heel = [ankle[0] - 1.0, ankle[1] + B.ankle];
+    return { hip: [0, hipY], knee, ankle, toe, heel, th: l.th };
+  };
+  const legs = [leg(L), leg(Rr)]; // 0 = near (right) leg, 1 = far leg
+  const lean_ = lean * deg;
+  const sh = [Math.sin(lean_) * B.torso, hipY - Math.cos(lean_) * B.torso];
+  const arm = (th, side) => {
+    const a = -th * 0.75 * swing, el = (12 + Math.max(0, -th / deg) * 0.3 + Math.max(0, th / deg) * 0.9) * deg;
+    const e = [sh[0] + Math.sin(a) * B.upper, sh[1] + Math.cos(a) * B.upper];
+    const fa = a + el; const h = [e[0] + Math.sin(fa) * B.fore, e[1] + Math.cos(fa) * B.fore];
+    return { sh: [sh[0] + (side ? -0.6 : 0.3), sh[1] + 1.2], el: e, hand: h };
+  };
+  const arms = [arm(L.th, 0), arm(Rr.th, 1)]; // near arm swings against the near leg
+  const neck = [sh[0] + 0.6, sh[1] - B.neck];
+  const head = [neck[0] + 0.9, neck[1] - B.head + 0.4];
+  return { who, hip: [0, hipY], sh, neck, head, legs, arms, lean: lean_ };
+}
+function standPose(who, { breathe = 0, armsFront = false } = {}) {
+  const P = walkPose(who, 0.28, { swing: 0.15, stride: 0.25, lean: 1 });
+  if (breathe) { P.sh[1] -= breathe; P.neck[1] -= breathe; P.head[1] -= breathe; }
+  return P;
+}
+// stride length (pixels per cycle) for a given person and stride scale: the support foot's travel
+function strideOf(who, stride = 1) {
+  const B = BODY[who];
+  const a = legPose(B, 0.02).ankle[0], b = legPose(B, 0.48).ankle[0];
+  return 2 * Math.abs(a - b) * stride;
+}
+
+// ---------------------------------------------------------------- running (the ribbon between chapters)
+// one leg over its own cycle: stance 0..0.25 (the foot planted and sweeping back under the hip), then a high swing.
+// Each leg is in the air for most of its cycle, so the body is airborne twice per cycle between the stances.
+const RUN = [
+  [0.0, 24, 16, 6], [0.07, 20, 29, 0], [0.14, 2, 16, -4], [0.25, -16, 12, -26],
+  [0.38, -22, 62, -38], [0.52, -2, 104, -30], [0.66, 30, 98, -14], [0.8, 44, 58, -2], [0.92, 34, 24, 6],
+];
+const RUN_STANCE = 0.25;
+// a running pose for a phase (0..1): upright chest, head over the shoulders, elbows bent, arms driving against legs
+function runPose(who, phase, { lean = 5 } = {}) {
+  const B = BODY[who];
+  const L = legPose(B, phase, RUN), Rr = legPose(B, phase + 0.5, RUN);
+  // the hip sits on the stance leg; between stances it flies on a low arc
+  const p = ((phase % 1) + 1) % 1;
+  const st = (q) => q < RUN_STANCE; // is a leg (at its own phase) on the ground
+  let ext;
+  if (st(p)) ext = L.ext;
+  else if (st((p + 0.5) % 1)) ext = Rr.ext;
+  else {
+    // flight: from the leg that just pushed off to the one about to land
+    const p0 = p < 0.5 ? RUN_STANCE : 0.5 + RUN_STANCE, p1 = p < 0.5 ? 0.5 : 1;
+    const k = (p - p0) / (p1 - p0);
+    const h0 = p < 0.5 ? legPose(B, RUN_STANCE, RUN).ext : legPose(B, RUN_STANCE, RUN).ext;
+    const h1 = legPose(B, 0, RUN).ext;
+    ext = h0 + (h1 - h0) * k + 1.6 * 4 * k * (1 - k);
+  }
+  const hipY = -ext;
+  const leg = (l) => {
+    const knee = [l.knee[0], hipY + l.knee[1]], ankle = [l.ankle[0], hipY + l.ankle[1]];
+    const toe = [ankle[0] + Math.cos(l.ft) * B.foot, ankle[1] + B.ankle - Math.sin(l.ft) * B.foot * 0.9];
+    const heel = [ankle[0] - 1.0, ankle[1] + B.ankle];
+    return { hip: [0, hipY], knee, ankle, toe, heel, th: l.th };
+  };
+  const legs = [leg(L), leg(Rr)];
+  const lean_ = lean * deg;
+  const sh = [Math.sin(lean_) * B.torso, hipY - Math.cos(lean_) * B.torso];
+  // arms: the upper arm swings against the leg on its side, the elbow bent at about a right angle
+  const arm = (th, side) => {
+    const a = -th * 1.1, el = (78 + Math.max(0, -a / deg) * 0.4) * deg;
+    const e = [sh[0] + Math.sin(a) * B.upper * 0.95, sh[1] + Math.cos(a) * B.upper * 0.95];
+    const fa = a + el; const h = [e[0] + Math.sin(fa) * B.fore * 0.92, e[1] + Math.cos(fa) * B.fore * 0.92];
+    return { sh: [sh[0] + (side ? -0.6 : 0.3), sh[1] + 1.2], el: e, hand: h };
+  };
+  const arms = [arm(Rr.th, 0), arm(L.th, 1)];
+  const neck = [sh[0] + 0.15, sh[1] - B.neck];
+  const head = [neck[0] + 0.35, neck[1] - B.head + 0.4];
+  return { who, hip: [0, hipY], sh, neck, head, legs, arms, lean: lean_ };
+}
+// how far the body travels per running cycle (sprite pixels): twice the stance foot's sweep, scaled to the cycle
+function runStrideOf(who) {
+  const B = BODY[who];
+  const a = legPose(B, 0, RUN).ankle[0], b = legPose(B, RUN_STANCE, RUN).ankle[0];
+  return (a - b) / RUN_STANCE;
+}
+
+// ---------------------------------------------------------------- palettes
+const SKIN = { hi: '#ffe2c8', base: '#f5c7a3', lo: '#dc9f86', lo2: '#b9786c' };
+const SKIN_B = { hi: '#ffe6d2', base: '#f8cdb0', lo: '#e2a690', lo2: '#bd7f72' };
+const HAIR_G = { hi: '#5c4a5a', base: '#2f2433', lo: '#211726', lo2: '#170f1c' };
+const HAIR_B = { hi: '#6b4a4a', base: '#3b2729', lo: '#2a1a1e', lo2: '#1d1216' };
+const OUTFITS = {
+  school: {
+    groom: { top: R('#f4f6fb', { shadow: '#5d6a9a' }), trim: R('#2f5fb8'), pants: R('#28305a'), shoe: R('#f2f2f2', { shadow: '#6c7090' }), stripe: '#eef2ff', backpack: R('#c2423a') },
+    bride: { top: R('#f6f7fb', { shadow: '#6a6f9e' }), trim: R('#2f5fb8'), pants: R('#28305a'), shoe: R('#f2f2f2', { shadow: '#6c7090' }), stripe: '#eef2ff', book: R('#c8202e') },
+  },
+  office: {
+    groom: { top: R('#2b3f72'), pants: R('#28396a'), shirt: '#f4f2ee', tie: R('#c41e2e'), shoe: R('#2a2228'), case: R('#5b3a2a') },
+    bride: { top: R('#e7d2ae', { shadow: '#8a6a5a' }), skirt: R('#5c5f6c'), blouse: '#fbf8f2', shoe: R('#26202a'), badge: '#ffffff', lanyard: '#c41e2e', cup: R('#f7f1e6') },
+  },
+  wedding: {
+    groom: { top: R('#24232c', { light: '#a8a6c8' }), lapel: R('#3a3946', { light: '#d8d6ee' }), pants: R('#1f1e26', { light: '#9a98b8' }), shirt: '#ffffff', tie: '#121117', shoe: R('#151419', { light: '#c8c6e0' }), flower: '#e8475f' },
+    bride: { gown: R('#fbf8f4', { shadow: '#8d7fa6', k: 0.85 }), lace: '#efe6ec', veil: '#f6f3fb', shoe: R('#f4efe6'), bouquet: ['#e8475f', '#f6a8b8', '#ffffff', '#c92a44'], leaf: '#5f8a4a', gem: '#ffe7a0' },
+  },
+};
+
+// ---------------------------------------------------------------- drawing
+function sleeve(P, a, b, r0, r1, col, opts) { const s = S.taper(a[0], a[1], b[0], b[1], r0, r1); return P.part(s[0], s[1], col, opts); }
+function hand(P, h, col, r = 1.25) { const s = S.ellipse(h[0], h[1] + 0.3, r, r * 1.1); P.part(s[0], s[1], col, { shade: false }); }
+function torsoShape(pose, w0, w1, extra = 0) {
+  // a soft trapezoid from hips to shoulders, a little deeper at the chest
+  const [hx, hy] = pose.hip, [sx, sy] = pose.sh, k = pose.lean;
+  const fx = Math.cos(k), fy = Math.sin(k); // front direction ~ +x
+  const back0 = [hx - w0 * 0.55, hy + 1], front0 = [hx + w0 * 0.45, hy + 1];
+  const backS = [sx - w1 * 0.55 - fy, sy + 0.5], frontS = [sx + w1 * 0.45 + 0.3, sy + 0.8];
+  const chest = [sx + w1 * 0.5 + 0.8 + extra, sy + 3.5], belly = [hx + w0 * 0.5, hy - 3];
+  const backMid = [hx - w0 * 0.62, hy - 5];
+  return S.poly([back0, backMid, backS, [sx - 0.5, sy - 0.6], frontS, chest, belly, front0]);
+}
+function legShape(l, r0, r1) { return S.union(S.taper(l.hip[0], l.hip[1], l.knee[0], l.knee[1], r0, (r0 + r1) / 2), S.taper(l.knee[0], l.knee[1], l.ankle[0], l.ankle[1], (r0 + r1) / 2, r1)); }
+function shoe(P, l, col, { heel = false, h = 1.6 } = {}) {
+  const [ax, ay] = l.ankle, [tx, ty] = l.toe;
+  if (heel) {
+    const s = S.union(S.capsule(ax - 0.2, ay + 0.3, tx, ty, 0.95), S.capsule(ax - 0.9, ay + 0.5, ax - 0.9, ay + 1.8, 0.5));
+    return P.part(s[0], s[1], col, { rim: 1 });
+  }
+  const s = S.union(S.capsule(l.heel[0] + 0.6, l.heel[1] - 0.8, tx - 0.4, ty - 0.6, h * 0.62), S.capsule(l.heel[0] + 0.5, l.heel[1] - 0.6, tx - 0.2, ty - 0.5, h * 0.55));
+  return P.part(s[0], s[1], col);
+}
+// heads: hand-placed pixel maps (profile facing right), anchored at the head centre; hair styles differ per outfit
+const HEADS = {
+  groom: [
+    '....dHHHHd....',
+    '..dHHHHHHHHd..',
+    '.dHHhhhhHHHHd.',
+    '.HHhhHHHHHHHHH',
+    'dHHHHHHHHHSHHH',
+    'dHHHHHHHSSSS..',
+    'dHHHHHSSSSeS..',
+    'dHHHHrSSSSeSS.',
+    '.dHHHrsSSSSSSS',
+    '.dHHHSSSSbSS..',
+    '..dHHsSSSSSm..',
+    '...dHsSSSSSS..',
+    '.....sssSSs...',
+  ],
+  bride: [
+    '....dHHHHd....',
+    '..dHHHHHHHHd..',
+    '.dHHhhhhHHHHd.',
+    'dHHhhHHHHHHHHH',
+    'dHHHHHHHHHHSHH',
+    'dHHHHHHHHSSSS.',
+    'dHHHHHHSSSeeS.',
+    'dHHHHHrSSSeSS.',
+    '.dHHHHrsSSSSSS',
+    '.dHHHHSSSSbSS.',
+    '..dHHHsSSSSSm.',
+    '...dHHsSSSSS..',
+    '......sssSs...',
+  ],
+};
+function head(P, pose, who, style, t = 0, veil = null) {
+  const [hx, hy] = pose.head;
+  const skin = who === 'groom' ? SKIN : SKIN_B, hair = who === 'groom' ? HAIR_G : HAIR_B;
+  const nk = S.capsule(pose.neck[0] - 0.4, pose.neck[1] + 1.5, hx - 0.6, hy + 3, 1.25); P.part(nk[0], nk[1], skin, { line: false });
+  if (style === 'ponytail') {
+    const sw = Math.sin(t * Math.PI * 2) * 1.0;
+    const s = S.union(S.taper(hx - 5.6, hy - 2.6, hx - 8.2 + sw * 0.6, hy + 5.6, 1.9, 0.9), S.ellipse(hx - 5.6, hy - 2.2, 1.8, 1.9));
+    P.part(s[0], s[1], hair, { rim: 1 });
+  }
+  if (style === 'bun' || style === 'updo') { const b = S.ellipse(hx - 6.0, hy + (style === 'bun' ? 2.6 : -1.4), 2.5, 2.4); P.part(b[0], b[1], hair); }
+  if (veil) veil();
+  const pal = { H: hair.base, h: hair.hi, d: hair.lo, S: skin.base, L: skin.hi, s: skin.lo, r: skin.lo2, e: '#21161f', b: '#f29b98', m: who === 'bride' ? '#d0505a' : '#b56a62' };
+  P.map(HEADS[who], hx - 6.5, hy - 6.5, pal);
+  if (style === 'ponytail') { P.dot(hx - 6.2, hy - 4.2, '#e8475f'); P.dot(hx - 6.2, hy - 3.2, '#e8475f'); }
+}
+
+// one person; layer: 'far' parts darker. o: outfit colours
+function drawPerson(P, who, outfitName, pose, { t = 0, holdNear = null, holdFar = null, hideFarArm = false, extras = true } = {}) {
+  const o = OUTFITS[outfitName][who];
+  const skin = who === 'groom' ? SKIN : SKIN_B;
+  const far = (c) => ({ hi: c.base, base: c.lo, lo: c.lo2, lo2: mix(c.lo2, '#1a1020', 0.4) });
+  const [nearLeg, farLeg] = pose.legs, [nearArm, farArm] = pose.arms;
+  if (holdNear) { nearArm.hand = holdNear; nearArm.el = [(nearArm.sh[0] + holdNear[0]) / 2 + 0.6, (nearArm.sh[1] + holdNear[1]) / 2 + 0.8]; }
+  if (holdFar) { farArm.hand = holdFar; farArm.el = [(farArm.sh[0] + holdFar[0]) / 2 - 0.4, (farArm.sh[1] + holdFar[1]) / 2 + 0.8]; }
+  const B = BODY[who];
+  const sleeveCol = outfitName === 'school' ? o.trim : outfitName === 'wedding' && who === 'bride' ? null : o.top;
+  const armDraw = (a, colFn, isFar) => {
+    if (sleeveCol) {
+      sleeve(P, a.sh, a.el, B.armR[0] + 0.25, B.armR[1] + 0.2, colFn(sleeveCol));
+      sleeve(P, a.el, a.hand, B.armR[1] + 0.2, B.armR[1], colFn(sleeveCol));
+      if (outfitName === 'school') { const s = S.capsule(a.el[0] + (a.hand[0] - a.el[0]) * 0.86, a.el[1] + (a.hand[1] - a.el[1]) * 0.86, a.el[0] + (a.hand[0] - a.el[0]) * 0.9, a.el[1] + (a.hand[1] - a.el[1]) * 0.9, 1.2); P.part(s[0], s[1], colFn(o.top), { shade: false }); }
+      if (outfitName !== 'school') { const cuff = S.capsule(a.el[0] + (a.hand[0] - a.el[0]) * 0.9, a.el[1] + (a.hand[1] - a.el[1]) * 0.9, a.el[0] + (a.hand[0] - a.el[0]) * 0.93, a.el[1] + (a.hand[1] - a.el[1]) * 0.93, 1.05); P.part(cuff[0], cuff[1], colFn(R(o.shirt || o.blouse || '#ffffff')), { shade: false }); }
+    } else {
+      // bare arms (the gown) with long satin gloves? keep it simple: skin
+      sleeve(P, a.sh, a.el, B.armR[0], B.armR[1], colFn(skin)); sleeve(P, a.el, a.hand, B.armR[1], B.armR[1] - 0.1, colFn(skin));
+    }
+    hand(P, a.hand, colFn(skin), who === 'groom' ? 1.3 : 1.15);
+  };
+  // ---- far side: arm and leg
+  if (!hideFarArm) armDraw(farArm, far, true);
+  if (outfitName === 'school' && who === 'groom') {
+    // backpack behind the shoulders
+    const [sx, sy] = pose.sh; const bp = S.poly([[sx - 7.2, sy + 1.5], [sx - 6.6, sy - 0.5], [sx - 3, sy - 0.8], [sx - 2.4, sy + 9.5], [sx - 6.6, sy + 10]]);
+    P.part(bp[0], bp[1], o.backpack, { detail: (x, y) => (Math.abs(y - (sy + 5)) < 0.5 && x < sx - 3 ? o.backpack.lo2 : null) });
+  }
+  const legCol = o.pants || (outfitName === 'office' ? null : null);
+  if (outfitName === 'wedding' && who === 'bride') {
+    // gown: far half of the skirt and the train trailing behind
+    gownBack(P, pose, o, t);
+  } else if (outfitName === 'office' && who === 'bride') {
+    const l = farLeg; const s = legShape(l, B.legR[0] - 0.3, B.legR[1] - 0.25); P.part(s[0], s[1], far(R('#e9bba0', { shadow: '#7a4a5a' })));
+    shoe(P, l, far(o.shoe), { heel: true });
+  } else {
+    const s = legShape(farLeg, B.legR[0], B.legR[1]); P.part(s[0], s[1], far(legCol));
+    shoe(P, farLeg, far(o.shoe));
+  }
+  // ---- torso
+  if (outfitName === 'wedding' && who === 'bride') gownFront(P, pose, o, t, nearLeg, farLeg);
+  else {
+    const ts = torsoShape(pose, who === 'groom' ? 7.4 : 6.6, who === 'groom' ? 8.2 : 7.0, who === 'bride' ? 0.6 : 0);
+    const [sx, sy] = pose.sh, [hx, hy] = pose.hip;
+    const front = (x, y) => x - (hx + (sx - hx) * ((hy - y) / (hy - sy)));
+    let detail = null;
+    if (outfitName === 'school') {
+      // white body with blue shoulder yoke and a zip; a school badge on the chest
+      detail = (x, y, sh) => { if (y < sy + 3.2) return sh < 0 ? o.trim.lo : sh > 0 ? o.trim.hi : o.trim.base; if (Math.abs(front(x, y) - 3.3) < 0.5 && y > sy + 3) return '#c9cee0'; if (y > hy - 1.6) return o.trim.lo; if (Math.abs(x - (sx + 1)) < 0.6 && Math.abs(y - (sy + 5.5)) < 0.6) return '#e7b23c'; return null; };
+    } else if (outfitName === 'office' && who === 'groom') {
+      detail = (x, y) => { const f = front(x, y); if (y > sy + 0.4 && y < sy + 9.5 && f > 1.2) { if (f > 2.2 && y > sy + 1.4) return y < sy + 2.4 ? o.tie.hi : y > sy + 8.4 ? o.tie.lo : o.tie.base; if (y < sy + 5.5) return o.shirt; } if (Math.abs(y - (hy - 1)) < 0.6 && f > 1) return '#1d2a52'; return null; };
+    } else if (outfitName === 'office' && who === 'bride') {
+      detail = (x, y) => { const f = front(x, y); if (f > 1.8 && y < sy + 5 && y > sy + 0.4) return o.blouse; if (f > 2.6 && y > sy + 4.6 && y < sy + 6.2) return o.badge; if (Math.abs(f - 2.2) < 0.55 && y > sy + 0.6 && y < sy + 4.8) return o.lanyard; return null; };
+    } else if (outfitName === 'wedding' && who === 'groom') {
+      detail = (x, y, sh) => { const f = front(x, y); if (f > 1.4 && y < sy + 7 && y > sy + 0.6) { if (f > 2.6 && y < sy + 2.4) return o.tie; if (f > 2.3) return o.shirt; return sh > 0 ? o.lapel.hi : o.lapel.base; } if (Math.abs(x - (sx + 1.2)) < 0.7 && Math.abs(y - (sy + 3.4)) < 0.7) return o.flower; return null; };
+    }
+    P.part(ts[0], ts[1], o.top, { detail });
+  }
+  // ---- near leg
+  if (!(outfitName === 'wedding' && who === 'bride')) {
+    if (outfitName === 'office' && who === 'bride') {
+      const s = legShape(nearLeg, B.legR[0] - 0.3, B.legR[1] - 0.25); P.part(s[0], s[1], R('#f0c4a8', { shadow: '#8a5a62' }));
+      shoe(P, nearLeg, o.shoe, { heel: true });
+      // pencil skirt over both thighs, to just above the knee
+      const [hx, hy] = pose.hip, k1 = nearLeg.knee, k2 = farLeg.knee;
+      const sk = S.poly([[hx - 4, hy - 1.5], [hx + 3.6, hy - 1.5], [Math.max(k1[0], k2[0]) + 2.1, Math.max(k1[1], k2[1]) - 1.2], [Math.min(k1[0], k2[0]) - 2.0, Math.max(k1[1], k2[1]) - 1.2]]);
+      P.part(sk[0], sk[1], o.skirt);
+    } else {
+      const s = legShape(nearLeg, B.legR[0], B.legR[1]);
+      P.part(s[0], s[1], legCol, { detail: outfitName === 'school' ? (x, y) => { const l = nearLeg; const vx = l.knee[0] - l.hip[0], vy = l.knee[1] - l.hip[1]; const d = ((x - l.hip[0]) * vy - (y - l.hip[1]) * vx) / Math.hypot(vx, vy); return Math.abs(d + 0.2) < 0.5 && y > l.hip[1] + 1 ? o.stripe : null; } : outfitName === 'wedding' ? (x, y) => { const l = nearLeg; const vx = l.knee[0] - l.hip[0], vy = l.knee[1] - l.hip[1]; const d = ((x - l.hip[0]) * vy - (y - l.hip[1]) * vx) / Math.hypot(vx, vy); return Math.abs(d) < 0.45 ? o.lapel.base : null; } : null });
+      shoe(P, nearLeg, o.shoe);
+    }
+  }
+  // ---- head
+  const style = who === 'groom' ? 'short' : outfitName === 'school' ? 'ponytail' : outfitName === 'office' ? 'bun' : 'updo';
+  const veil = outfitName === 'wedding' && who === 'bride' ? () => veilBack(P, pose, o, t) : null;
+  head(P, pose, who, style, t, veil);
+  if (outfitName === 'wedding' && who === 'bride') { const [hx, hy] = pose.head; P.dot(hx - 2.2, hy - 5.4, o.gem); P.dot(hx - 1.2, hy - 5.8, '#ffffff'); P.dot(hx - 3.2, hy - 4.8, o.gem); }
+  if (outfitName === 'school' && who === 'bride') { const [hx, hy] = pose.head; P.dot(hx - 4.4, hy - 2.6, '#e8475f'); P.dot(hx - 4.4, hy - 1.6, '#e8475f'); }
+  // ---- near arm (and what it carries)
+  armDraw(nearArm, (c) => c, false);
+  if (extras) {
+    const h = nearArm.hand;
+    if (outfitName === 'school' && who === 'bride') { const b = S.poly([[h[0] - 0.5, h[1] - 6], [h[0] + 3.2, h[1] - 6.6], [h[0] + 3.8, h[1] + 0.6], [h[0], h[1] + 1.2]]); P.part(b[0], b[1], o.book, { detail: (x, y) => (Math.abs(x - (h[0] + 0.4)) < 0.5 ? '#f3e3c8' : null) }); hand(P, [h[0] + 0.2, h[1] - 1.2], SKIN_B, 1.1); }
+    if (outfitName === 'office' && who === 'bride') { const c = S.poly([[h[0] - 0.4, h[1] - 3.8], [h[0] + 2.6, h[1] - 3.8], [h[0] + 2.2, h[1] + 0.8], [h[0] - 0.1, h[1] + 0.8]]); P.part(c[0], c[1], o.cup, { detail: (x, y) => (y > h[1] - 2.4 && y < h[1] - 0.6 ? '#8a5a3c' : y < h[1] - 3.2 ? '#ffffff' : null) }); hand(P, [h[0] + 0.3, h[1] - 0.8], SKIN_B, 1.05); }
+    if (outfitName === 'wedding' && who === 'bride') bouquet(P, h, o);
+    if (outfitName === 'office' && who === 'groom' && !hideFarArm) { const fh = farArm.hand; const c = S.poly([[fh[0] - 3.4, fh[1] + 0.6], [fh[0] + 3.4, fh[1] + 0.6], [fh[0] + 3.2, fh[1] + 5.4], [fh[0] - 3.2, fh[1] + 5.4]]); P.part(c[0], c[1], far(o.case), { detail: (x, y) => (Math.abs(y - (fh[1] + 2.2)) < 0.5 ? o.case.lo2 : null) }); }
+  }
+}
+function bouquet(P, h, o) {
+  const cx = h[0] + 1.6, cy = h[1] - 1.8;
+  const leaves = S.union(S.ellipse(cx - 1.6, cy + 1.6, 1.4, 2.8, 0.6), S.ellipse(cx + 1.9, cy + 1.4, 1.4, 2.6, -0.5), S.capsule(cx - 0.2, cy + 2, cx - 0.6, cy + 5, 0.9));
+  P.part(leaves[0], leaves[1], R(o.leaf));
+  const pts = [[0, 0, 0], [-1.6, -0.8, 1], [1.6, -0.6, 0], [-0.4, -2.0, 2], [1.2, -2.2, 1], [-1.8, 1.0, 3], [1.8, 1.2, 1], [0.2, 1.4, 0]];
+  for (const [dx, dy, k] of pts) { const s = S.ellipse(cx + dx, cy + dy, 1.3, 1.2); P.part(s[0], s[1], R(o.bouquet[k]), { line: o.bouquet[k] === '#ffffff' ? '#d8c8d4' : null }); }
+  hand(P, [h[0] + 0.2, h[1] + 0.2], SKIN_B, 1.05);
+}
+// the gown: a fitted bodice, a full skirt to the ground that sways with the step, and a train behind
+function gownBack(P, pose, o, t) {
+  const [hx, hy] = pose.hip;
+  const sw = Math.sin(t * Math.PI * 2) * 0.8;
+  // train: a long tapering sweep on the ground behind her
+  const tr = S.poly([[hx - 2, hy + 2], [hx - 9 + sw, hy + 12], [hx - 17 + sw * 1.5, hy + 18.6], [hx - 24 + sw * 2, hy + 19.6], [hx - 26 + sw * 2, hy + 20.2], [hx - 6, hy + 20.4], [hx + 2, hy + 19]]);
+  P.part(tr[0], tr[1], { hi: o.gown.hi, base: o.gown.lo, lo: o.gown.lo2, lo2: mix(o.gown.lo2, '#5a4a70', 0.3) }, { detail: (x, y) => (((x * 0.7 + y * 1.3) | 0) % 5 === 0 && y > hy + 14 ? o.lace : null) });
+}
+function gownFront(P, pose, o, t, nearLeg, farLeg) {
+  const [hx, hy] = pose.hip, [sx, sy] = pose.sh;
+  const step = (nearLeg.knee[0] - farLeg.knee[0]) * 0.18;
+  const sw = Math.sin(t * Math.PI * 2) * 0.6;
+  // full skirt: waist to floor, front hem moves with the leading knee
+  const sk = S.poly([[hx - 3.6, hy - 2.2], [hx + 3.4, hy - 2.2], [hx + 7.2 + step + sw, hy + 12], [hx + 9.4 + step + sw, hy + 19.4], [hx + 2, hy + 20.6], [hx - 8.8 + sw, hy + 20.2], [hx - 8.4, hy + 12]]);
+  P.part(sk[0], sk[1], o.gown, { rim: 2, detail: (x, y, s) => { const k = (x - hx) * 0.55 + (y - hy) * 0.08; if (s === 0 && y > hy + 3 && Math.abs(((k % 3) + 3) % 3 - 1.5) < 0.35) return o.gown.lo; if (y > hy + 18.4 && ((x | 0) % 2 === 0)) return o.lace; return null; } });
+  // bodice: strapless, with a sweetheart neckline and a satin sash at the waist
+  const bd = S.poly([[hx - 3.2, hy - 1.4], [hx + 3.4, hy - 1.4], [sx + 3.6, sy + 4.6], [sx + 2.6, sy + 2.2], [sx + 1.2, sy + 3.0], [sx - 1.2, sy + 2.4], [sx - 3.2, sy + 3.4]]);
+  P.part(bd[0], bd[1], o.gown, { detail: (x, y) => (Math.abs(y - (hy - 2.2)) < 0.6 ? '#f2d9a6' : (((x + y) | 0) % 3 === 0 && y < hy - 3 ? o.lace : null)) });
+  // shoulders and chest above the neckline are skin
+  const sk2 = S.poly([[sx - 2.6, sy + 3.0], [sx - 2.2, sy - 0.2], [sx + 2.0, sy - 0.4], [sx + 2.8, sy + 2.0], [sx + 1.2, sy + 2.6], [sx - 1.0, sy + 2.2]]);
+  P.part(sk2[0], sk2[1], SKIN_B, { line: false });
+}
+function veilBack(P, pose, o, t) {
+  const [hx, hy] = pose.head;
+  const fl = Math.sin(t * Math.PI * 2 + 0.6) * 0.9, fl2 = Math.sin(t * Math.PI * 2 + 1.9) * 1.1;
+  // a sheer tulle drape from the comb at the back of the head down past the waist
+  const v = S.poly([[hx - 3.6, hy - 4.6], [hx - 6.4, hy - 2.6], [hx - 8.6 + fl, hy + 6], [hx - 10.4 + fl2, hy + 15], [hx - 10.8 + fl2, hy + 19.5], [hx - 6.8 + fl, hy + 19], [hx - 4.6, hy + 9], [hx - 3.2, hy + 2]]);
+  P.part(v[0], v[1], { hi: '#ffffff', base: o.veil, lo: mix(o.veil, '#b0a4c8', 0.3), lo2: mix(o.veil, '#9a8eb8', 0.5) }, { rim: 1, line: false, alpha: 175, detail: (x, y) => ((((x * 3 + y * 2) | 0) % 7 === 0) ? '#ffffff' : null) });
+}
+
+// ---------------------------------------------------------------- the couple
+// Hand in hand, the bride nearer the viewer and half a step ahead. Returns a Buf and the anchor (ground point below
+// the groom's hip). Cached by outfit and frame.
+const coupleCache = new Map();
+const COUPLE_W = 84, COUPLE_H = 64, ANCHOR = [34, 58];
+function coupleFrame(outfit, frame, frames = 16, { bridePhase = 0.06, stand = false } = {}) {
+  const key = `${outfit}:${frame}:${frames}:${stand ? 1 : 0}`;
+  let hit = coupleCache.get(key);
+  if (hit) return hit;
+  const P = new Painter(COUPLE_W, COUPLE_H, ANCHOR[0], ANCHOR[1]);
+  const ph = frame / frames;
+  const gp = stand ? standPose('groom', { breathe: frame % 2 ? 0 : 0 }) : walkPose('groom', ph);
+  const bpz = stand ? standPose('bride') : walkPose('bride', ph + bridePhase);
+  const bx = 15, by = 2;
+  // shift the bride's pose to her place
+  const mv = (p, dx, dy) => { const f = (q) => { q[0] += dx; q[1] += dy; }; f(p.hip); f(p.sh); f(p.neck); f(p.head); p.legs.forEach((l) => [l.hip, l.knee, l.ankle, l.toe, l.heel].forEach(f)); p.arms.forEach((a) => [a.sh, a.el, a.hand].forEach(f)); return p; };
+  mv(bpz, bx, by);
+  // joined hands: between them, just behind her back, swinging a little with the step
+  const sw = Math.sin(ph * Math.PI * 2) * 0.8;
+  const join = [bx - 6.0 + sw * 0.5, gp.hip[1] + 3.4];
+  drawPerson(P, 'groom', outfit, gp, { t: ph, holdNear: join });
+  drawPerson(P, 'bride', outfit, bpz, { t: ph, holdFar: [join[0] + 0.8, join[1] + 0.3] });
+  P.b.outline(C(INK));
+  hit = { buf: P.b, canvas: null, anchor: ANCHOR };
+  coupleCache.set(key, hit);
+  return hit;
+}
+// running hand in hand (for the ribbon): same layout as the walking couple, both in step
+const RUN_FRAMES = 12;
+function coupleRunFrame(outfit, frame, frames = RUN_FRAMES) {
+  const key = `run:${outfit}:${frame}:${frames}`;
+  let hit = coupleCache.get(key);
+  if (hit) return hit;
+  const P = new Painter(COUPLE_W, COUPLE_H, ANCHOR[0], ANCHOR[1]);
+  const ph = frame / frames;
+  const gp = runPose('groom', ph), bpz = runPose('bride', ph + 0.03);
+  const bx = 15, by = 2;
+  const mv = (p, dx, dy) => { const f = (q) => { q[0] += dx; q[1] += dy; }; f(p.hip); f(p.sh); f(p.neck); f(p.head); p.legs.forEach((l) => [l.hip, l.knee, l.ankle, l.toe, l.heel].forEach(f)); p.arms.forEach((a) => [a.sh, a.el, a.hand].forEach(f)); return p; };
+  mv(bpz, bx, by);
+  // joined hands between them, low and a little behind her, bobbing with the stride
+  const join = [bx - 6.4, gp.hip[1] + 3.0];
+  drawPerson(P, 'groom', outfit, gp, { t: ph, holdNear: join });
+  drawPerson(P, 'bride', outfit, bpz, { t: ph, holdFar: [join[0] + 0.8, join[1] + 0.3] });
+  P.b.outline(C(INK));
+  hit = { buf: P.b, canvas: null, anchor: ANCHOR };
+  coupleCache.set(key, hit);
+  return hit;
+}
+function singleFrame(who, outfit, frame, frames = 16, { stand = false, flip = false } = {}) {
+  const key = `${who}:${outfit}:${frame}:${frames}:${stand ? 1 : 0}`;
+  let hit = coupleCache.get(key);
+  if (hit) return hit;
+  const P = new Painter(56, COUPLE_H, 28, ANCHOR[1]);
+  const pose = stand ? standPose(who) : walkPose(who, frame / frames);
+  drawPerson(P, who, outfit, pose, { t: frame / frames });
+  P.b.outline(C(INK));
+  hit = { buf: P.b, canvas: null, anchor: [28, ANCHOR[1]] };
+  coupleCache.set(key, hit);
+  return hit;
+}
+
+__e.INK=INK;__e.BODY=BODY;__e.walkPose=walkPose;__e.standPose=standPose;__e.strideOf=strideOf;__e.RUN_STANCE=RUN_STANCE;__e.runPose=runPose;__e.runStrideOf=runStrideOf;__e.OUTFITS=OUTFITS;__e.drawPerson=drawPerson;__e.COUPLE_W=COUPLE_W;__e.COUPLE_H=COUPLE_H;__e.ANCHOR=ANCHOR;__e.coupleFrame=coupleFrame;__e.RUN_FRAMES=RUN_FRAMES;__e.coupleRunFrame=coupleRunFrame;__e.singleFrame=singleFrame;
+},
+/* src/px/paint.js */
+function(__r,__e){// Painting helpers for pixel backgrounds: dithered gradients, clouds, tree crowns, hills, buildings, water.
+// Everything is deterministic (seeded) and drawn straight into a Buf.
+const {Buf:Buf,C:C,BAYER:BAYER,mix:mix,blend:blend}=__r(21);
+
+function rng(seed) { let s = (seed >>> 0) || 1; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; }; }
+function hash2(x, y, s = 0) { let h = (x * 374761393 + y * 668265263 + s * 2246822519) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+function vnoise(x, s = 0) { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return hash2(i, 0, s) * (1 - u) + hash2(i + 1, 0, s) * u; }
+function fbm(x, s = 0, oct = 4) { let a = 0.5, v = 0, f = 1; for (let k = 0; k < oct; k += 1) { v += a * vnoise(x * f, s + k * 17); f *= 2.03; a *= 0.5; } return v; }
+function vnoise2(x, y, s = 0) { const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy); const a = hash2(i, j, s), b = hash2(i + 1, j, s), c = hash2(i, j + 1, s), d = hash2(i + 1, j + 1, s); return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v; }
+function fbm2(x, y, s = 0, oct = 4) { let a = 0.5, v = 0, f = 1; for (let k = 0; k < oct; k += 1) { v += a * vnoise2(x * f, y * f, s + k * 31); f *= 2.02; a *= 0.5; } return v; }
+
+// colour at t in [0, 1] along evenly spaced colours, dithered between neighbours
+function ditherPick(cols, t, x, y) {
+  const n = cols.length - 1, f = Math.max(0, Math.min(0.9999, t)) * n, i = Math.floor(f), fr = f - i;
+  return fr > BAYER[((y & 3) << 2) | (x & 3)] ? cols[Math.min(n, i + 1)] : cols[i];
+}
+function vgrad(b, x0, y0, w, h, hexes, { band = 1 } = {}) {
+  const cols = hexes.map((h2) => C(h2)), n = cols.length - 1, xa = Math.max(0, x0), xb = Math.min(b.w, x0 + w);
+  for (let y = Math.max(0, y0); y < Math.min(b.h, y0 + h); y += 1) {
+    // per row: the two neighbouring colours and how far between them; per pixel only the ordered-dither test
+    const t = (y - y0) / Math.max(1, h - 1), f = Math.max(0, Math.min(0.9999, t)) * n, i = Math.floor(f), fr = f - i;
+    const c0 = cols[i], c1 = cols[Math.min(n, i + 1)], yy = (((y / band) | 0) & 3) << 2, row = y * b.w;
+    for (let x = xa; x < xb; x += 1) b.d[row + x] = fr > BAYER[yy | (((x / band) | 0) & 3)] ? c1 : c0;
+  }
+}
+// soft radial glow, quantised to a few dithered steps (for the sun, lamps, fireworks)
+function glow(b, cx, cy, r, hex, strength = 0.6, steps = 4) {
+  const c = C(hex);
+  const ya = Math.max(0, Math.floor(cy - r)), yb = Math.min(b.h - 1, cy + r), xa = Math.max(0, Math.floor(cx - r)), xb = Math.min(b.w - 1, cx + r);
+  for (let y = ya; y <= yb; y += 1) for (let x = xa; x <= xb; x += 1) {
+    const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy) / r; if (d >= 1) continue;
+    let a = (1 - d) * (1 - d) * strength; a = Math.floor(a * steps + BAYER[((y & 3) << 2) | (x & 3)]) / steps;
+    if (a > 0) b.d[y * b.w + x] = blend(b.d[y * b.w + x], c, a);
+  }
+}
+// cumulus cloud: a flat-bottomed heap of puffs, lit from the upper left; pal = [hi, base, lo, lo2]
+function cloud(b, x, y, w, h, pal, seed = 1) {
+  const r = rng(seed); const puffs = [];
+  const n = 4 + Math.floor(w / 14);
+  for (let i = 0; i < n; i += 1) { const u = (i + 0.5) / n; const px = x + u * w + (r() - 0.5) * 6; const ph = h * (0.45 + 0.55 * Math.sin(Math.PI * u) * (0.7 + r() * 0.3)); puffs.push([px, y + h - ph * 0.55, ph * 0.55 + r() * 2]); }
+  const np = puffs.length, PX = new Float64Array(np), PY = new Float64Array(np), PR = new Float64Array(np);
+  puffs.forEach(([px, py, pr], i) => { PX[i] = px; PY[i] = py; PR[i] = pr * pr; });
+  const inside = (X, Y) => { if (Y > y + h) return false; for (let i = 0; i < np; i += 1) { const dx = X - PX[i], dy = Y - PY[i]; if (dx * dx + dy * dy <= PR[i]) return true; } return false; };
+  const cols = pal.map((p) => C(p));
+  for (let Y = Math.floor(y - h); Y <= y + h; Y += 1) for (let X = Math.floor(x - 4); X <= x + w + 4; X += 1) {
+    if (X < 0 || Y < 0 || X >= b.w || Y >= b.h || !inside(X + 0.5, Y + 0.5)) continue;
+    // light: how open is the upper-left, how close to the flat bottom
+    const up = !inside(X - 1.5, Y - 1.5) ? 1 : !inside(X - 3, Y - 3) ? 0.6 : 0;
+    const bottom = (Y - (y + h * 0.35)) / (h * 0.65);
+    let k = 1; if (up >= 1) k = 0; else if (bottom > 0.55) k = bottom > 0.82 ? 3 : 2; else if (up > 0) k = BAYER[((Y & 3) << 2) | (X & 3)] < 0.5 ? 0 : 1;
+    if (k === 2 && BAYER[((Y & 3) << 2) | (X & 3)] < 0.3 && bottom < 0.7) k = 1;
+    b.d[Y * b.w + X] = cols[k];
+  }
+}
+// leafy tree crown: clustered blobs with a noisy rim, highlight clusters on the upper left, deep shade underneath
+function crown(b, cx, cy, rx, ry, pal, seed = 1, { sway = 0 } = {}) {
+  const r = rng(seed); const blobs = [];
+  const n = 5 + Math.floor((rx * ry) / 40);
+  for (let i = 0; i < n; i += 1) { const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 0.62; blobs.push([cx + Math.cos(a) * rx * d, cy + Math.sin(a) * ry * d * 0.9, (0.38 + r() * 0.22) * Math.min(rx, ry)]); }
+  blobs.push([cx, cy, Math.min(rx, ry) * 0.62]);
+  // blobs as flat arrays (x, y, 1/r): this runs twice per pixel of every tree and hedge
+  const nb = blobs.length, BX = new Float64Array(nb), BY = new Float64Array(nb), BI = new Float64Array(nb);
+  blobs.forEach(([bx, by, br], i) => { BX[i] = bx; BY[i] = by; BI[i] = 1 / br; });
+  const field = (X, Y) => { let m = -9; const sx = sway ? sway * (cy + ry - Y) / ry : 0; for (let i = 0; i < nb; i += 1) { const dx = (X - BX[i] - sx) * BI[i], dy = (Y - BY[i]) * BI[i]; const v = 1 - (dx * dx + dy * dy); if (v > m) m = v; } return m; };
+  const cols = pal.map((p) => C(p));
+  for (let Y = Math.floor(cy - ry * 1.2); Y <= cy + ry * 1.2; Y += 1) for (let X = Math.floor(cx - rx * 1.25); X <= cx + rx * 1.25; X += 1) {
+    if (X < 0 || Y < 0 || X >= b.w || Y >= b.h) continue;
+    const f0 = field(X + 0.5, Y + 0.5); if (f0 <= -0.05) continue;
+    const f = f0 + (hash2(X >> 1, Y >> 1, seed) - 0.5) * 0.1; if (f <= 0) continue;
+    const lit = field(X - 1.5, Y - 2.5);
+    const shade = (Y - (cy - ry * 0.2)) / (ry * 1.2) + (X - cx) / (rx * 4);
+    let k;
+    if (lit <= 0.02) k = 0; else if (shade > 0.62) k = 3; else if (shade > 0.28) k = 2; else k = 1;
+    // leaf texture: a few pixels jump one step
+    const hh = hash2(X >> 1, Y >> 1, seed + 3); if (hh > 0.86 && k > 0) k -= 1; else if (hh < 0.1 && k < 3) k += 1;
+    b.d[Y * b.w + X] = cols[k];
+  }
+}
+function trunk(b, x, y0, y1, w, pal) {
+  const cols = pal.map((p) => C(p));
+  for (let y = Math.floor(y0); y < y1; y += 1) for (let i = 0; i < w; i += 1) { const xx = Math.round(x - w / 2 + i); if (xx < 0 || xx >= b.w || y < 0 || y >= b.h) continue; b.d[y * b.w + xx] = cols[i === 0 ? 0 : i >= w - 1 ? 2 : 1]; }
+}
+// a silhouette band: top edge from fbm noise; fill colour with optional dithered fade to another at the bottom
+function ridge(b, x0, x1, baseY, amp, freq, hex, seed = 1, { bottomHex = null, fade = 0, maxY = Infinity } = {}) {
+  const c = C(hex), c2 = bottomHex ? C(bottomHex) : c;
+  for (let x = Math.max(0, x0); x < Math.min(b.w, x1); x += 1) {
+    const top = Math.round(baseY - amp * fbm(x * freq, seed));
+    for (let y = Math.max(0, top); y < Math.min(b.h, maxY); y += 1) { const t = fade ? (y - top) / fade : 0; b.d[y * b.w + x] = t > BAYER[((y & 3) << 2) | (x & 3)] ? c2 : c; }
+  }
+}
+// shadow ellipse on the ground (dithered, translucent)
+function shadowEllipse(b, cx, cy, rx, ry, a = 0.35, hex = '#1b1020') {
+  const c = C(hex);
+  for (let y = Math.floor(cy - ry); y <= cy + ry; y += 1) for (let x = Math.floor(cx - rx); x <= cx + rx; x += 1) { const u = (x + 0.5 - cx) / rx, v = (y + 0.5 - cy) / ry; const d = u * u + v * v; if (d <= 1) b.bpx(x, y, c, a * (d < 0.5 ? 1 : 0.6)); }
+}
+
+__e.rng=rng;__e.hash2=hash2;__e.vnoise=vnoise;__e.fbm=fbm;__e.vnoise2=vnoise2;__e.fbm2=fbm2;__e.ditherPick=ditherPick;__e.vgrad=vgrad;__e.glow=glow;__e.cloud=cloud;__e.crown=crown;__e.trunk=trunk;__e.ridge=ridge;__e.shadowEllipse=shadowEllipse;
+},
 /* src/bookscene.js */
 function(__r,__e){// The album chapter: a thick hardcover album open on a small round table, seen from the front and above (the spine
 // upright in the middle of the frame, the pages arching up out of the gutter), in warm sunset light with a few rose
 // petals on the lace cloth. The book itself (pages, turning, photos) is book.js.
 const THREE=__r(3);
-const {createBook:createBook,BOOK_DUR:BOOK_DUR,BOOK_BEATS:BOOK_BEATS,BOOK_SCHEDULE:BOOK_SCHEDULE}=__r(21);
+const {createBook:createBook,BOOK_DUR:BOOK_DUR,BOOK_BEATS:BOOK_BEATS,BOOK_SCHEDULE:BOOK_SCHEDULE}=__r(25);
 const {clamp:clamp,lerp:lerp,sstep:sstep,smoother:smoother,rng:rng}=__r(16);
 
 __e.BOOK_DUR=BOOK_DUR;__e.BOOK_BEATS=BOOK_BEATS;__e.BOOK_SCHEDULE=BOOK_SCHEDULE;
@@ -5126,7 +6147,7 @@ __e.BOOK_SCHEDULE=BOOK_SCHEDULE;__e.BOOK_DUR=BOOK_DUR;__e.BOOK_BEATS=BOOK_BEATS;
 /* src/px/stage.js */
 function(__r,__e){// The pixel stage: one canvas laid over the 3D canvas; a chapter draws its low-resolution frame into a buffer, which is
 // shown scaled by a whole number of device pixels. mosaic > 1 shows coarser blocks (used for the dive transitions).
-const {Buf:Buf,createDisplay:createDisplay}=__r(23);
+const {Buf:Buf,createDisplay:createDisplay}=__r(21);
 
 function createPixelStage(parent) {
   const disp = createDisplay(parent);
@@ -5148,294 +6169,13 @@ function createPixelStage(parent) {
 
 __e.createPixelStage=createPixelStage;
 },
-/* src/px/core.js */
-function(__r,__e){// Pixel-art toolkit: an RGBA buffer with crisp primitives (no anti-aliasing), colour ramps, ordered dithering,
-// sprites as offscreen canvases, and a display that scales a low-resolution frame by a whole number of device
-// pixels so every art pixel is the same size on screen.
-
-// colours are 32-bit ABGR (the byte order of ImageData on little-endian machines)
-const cache = new Map(), cacheA = new Map();
-const pack = (hex, a) => { const n = parseInt(hex.slice(1), 16); return (((a & 255) << 24) | ((n & 255) << 16) | (n & 0xff00) | ((n >> 16) & 255)) >>> 0; };
-function C(hex, a = 255) {
-  if (a === 255) { let v = cache.get(hex); if (v === undefined) { v = pack(hex, 255); cache.set(hex, v); } return v; }
-  const k = hex + a;
-  let v = cacheA.get(k);
-  if (v === undefined) { v = pack(hex, a); cacheA.set(k, v); }
-  return v;
-}
-const CLEAR = 0;
-const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-// Time-sliced preparation of a chapter: a generator that builds the background layers (yielding between chunks),
-// then a list of small jobs (sprites drawn ahead into their caches). step(budgetMs) works until the budget is spent
-// and returns true once everything is done; layers() finishes just the layers (when a frame needs them right now).
-function preparer(makeGen, jobs = []) {
-  let g = null, genDone = false, j = 0;
-  return {
-    layers() { while (!genDone) { if (!g) g = makeGen(); if (g.next().done) genDone = true; } },
-    // every call makes progress (at least one chunk or one job), however small the budget
-    step(budget = Infinity) {
-      const t0 = now(); let worked = false;
-      while (!genDone) { if (!g) g = makeGen(); worked = true; if (g.next().done) { genDone = true; break; } if (now() - t0 >= budget) return false; }
-      while (j < jobs.length) { if (worked && now() - t0 >= budget) return false; jobs[j](); j += 1; worked = true; }
-      return true;
-    },
-    get layersDone() { return genDone; },
-    get done() { return genDone && j >= jobs.length; },
-  };
-}
-const hexToRgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
-const rgbToHex = (r, g, b) => '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
-function mix(a, b, t) { const A = hexToRgb(a), B = hexToRgb(b); return rgbToHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t); }
-// a four-step ramp with hue-shifted shadows (towards violet) and warm highlights, as pixel artists paint them
-function ramp(base, { shadow = '#3a2050', light = '#fff1c8', k = 1 } = {}) {
-  return { hi: mix(base, light, 0.32 * k), base, lo: mix(base, shadow, 0.3 * k), lo2: mix(base, shadow, 0.55 * k) };
-}
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
-const dith = (x, y, t) => t > BAYER[((y & 3) << 2) | (x & 3)];
-
-class Buf {
-  constructor(w, h) { this.w = w; this.h = h; this.img = new ImageData(Math.max(1, w), Math.max(1, h)); this.d = new Uint32Array(this.img.data.buffer); }
-  clear(c = 0) { this.d.fill(c); return this; }
-  inside(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
-  get(x, y) { return this.inside(x, y) ? this.d[y * this.w + x] : 0; }
-  px(x, y, c) { x |= 0; y |= 0; if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.d[y * this.w + x] = c; }
-  rect(x, y, w, h, c) {
-    x |= 0; y |= 0; w |= 0; h |= 0;
-    const x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(this.w, x + w), y1 = Math.min(this.h, y + h);
-    for (let j = y0; j < y1; j += 1) this.d.fill(c, j * this.w + x0, j * this.w + x1);
-    return this;
-  }
-  hline(x0, x1, y, c) { if (x1 < x0) [x0, x1] = [x1, x0]; this.rect(x0, y, x1 - x0 + 1, 1, c); }
-  vline(x, y0, y1, c) { if (y1 < y0) [y0, y1] = [y1, y0]; this.rect(x, y0, 1, y1 - y0 + 1, c); }
-  line(x0, y0, x1, y1, c) {
-    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
-    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-    let e = dx + dy;
-    for (;;) { this.px(x0, y0, c); if (x0 === x1 && y0 === y1) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; } }
-  }
-  // filled shapes sample pixel centres, so edges are clean stair-steps
-  ellipse(cx, cy, rx, ry, c) {
-    const x0 = Math.floor(cx - rx), x1 = Math.ceil(cx + rx), y0 = Math.floor(cy - ry), y1 = Math.ceil(cy + ry);
-    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) { const u = (x + 0.5 - cx) / rx, v = (y + 0.5 - cy) / ry; if (u * u + v * v <= 1) this.px(x, y, c); }
-  }
-  circle(cx, cy, r, c) { this.ellipse(cx, cy, r, r, c); }
-  poly(pts, c) {
-    let y0 = Infinity, y1 = -Infinity; for (const p of pts) { y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
-    for (let y = Math.floor(y0); y <= Math.ceil(y1); y += 1) {
-      const yc = y + 0.5, xs = [];
-      for (let i = 0, n = pts.length; i < n; i += 1) {
-        const a = pts[i], b = pts[(i + 1) % n];
-        if ((a[1] <= yc && b[1] > yc) || (b[1] <= yc && a[1] > yc)) xs.push(a[0] + ((yc - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
-      }
-      xs.sort((p, q) => p - q);
-      for (let k = 0; k + 1 < xs.length; k += 2) { const xa = Math.ceil(xs[k] - 0.5), xb = Math.floor(xs[k + 1] - 0.5); if (xb >= xa) this.rect(xa, y, xb - xa + 1, 1, c); }
-    }
-  }
-  // capsule (a thick segment with round ends)
-  capsule(ax, ay, bx, by, r, c) {
-    const x0 = Math.floor(Math.min(ax, bx) - r - 1), x1 = Math.ceil(Math.max(ax, bx) + r + 1), y0 = Math.floor(Math.min(ay, by) - r - 1), y1 = Math.ceil(Math.max(ay, by) + r + 1);
-    const vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1e-9;
-    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) {
-      const px = x + 0.5 - ax, py = y + 0.5 - ay; const t = Math.max(0, Math.min(1, (px * vx + py * vy) / L));
-      const dx = px - vx * t, dy = py - vy * t; if (dx * dx + dy * dy <= r * r) this.px(x, y, c);
-    }
-  }
-  // copy another buffer (transparent pixels skipped); flip mirrors horizontally
-  blit(src, x, y, flip = false) {
-    x |= 0; y |= 0;
-    for (let j = 0; j < src.h; j += 1) {
-      const yy = y + j; if (yy < 0 || yy >= this.h) continue;
-      for (let i = 0; i < src.w; i += 1) {
-        const v = src.d[j * src.w + (flip ? src.w - 1 - i : i)]; if (!(v >>> 24)) continue;
-        const xx = x + i; if (xx >= 0 && xx < this.w) this.d[yy * this.w + xx] = v;
-      }
-    }
-  }
-  // a one-pixel outline around everything opaque (4-neighbourhood), in one colour
-  outline(c) {
-    const { w, h, d } = this, o = new Uint32Array(d);
-    for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) {
-      if (d[y * w + x] >>> 24) continue;
-      if ((x > 0 && d[y * w + x - 1] >>> 24) || (x < w - 1 && d[y * w + x + 1] >>> 24) || (y > 0 && d[(y - 1) * w + x] >>> 24) || (y < h - 1 && d[(y + 1) * w + x] >>> 24)) o[y * w + x] = c;
-    }
-    d.set(o); return this;
-  }
-  // opaque runs per row, so large layers can be copied a row-span at a time; semi-transparent pixels kept apart
-  spans() {
-    if (this._sp) return this._sp;
-    const { w, h, d } = this, rows = [], soft = [];
-    for (let y = 0; y < h; y += 1) {
-      const r = []; let x = 0;
-      while (x < w) {
-        while (x < w && (d[y * w + x] >>> 24) !== 255) { if (d[y * w + x] >>> 24) soft.push(y * w + x); x += 1; }
-        const x0 = x; while (x < w && (d[y * w + x] >>> 24) === 255) x += 1;
-        if (x > x0) r.push(x0, x);
-      }
-      rows.push(r);
-    }
-    this._sp = { rows, soft };
-    return this._sp;
-  }
-  // draw src at (x, y) using its spans; alpha < 1 blends the whole sprite
-  draw(src, x, y, { flip = false, alpha = 1, tint = null } = {}) {
-    x = Math.round(x); y = Math.round(y);
-    const { rows, soft } = src.spans(), W = this.w, H = this.h, sw = src.w, d = this.d, sd = src.d;
-    if (y >= H || y + src.h <= 0 || x >= W || x + sw <= 0) return;
-    if (!flip && alpha >= 1 && !tint) {
-      for (let j = Math.max(0, -y), j1 = Math.min(src.h, H - y); j < j1; j += 1) {
-        const r = rows[j], row = (y + j) * W, srow = j * sw;
-        for (let k = 0; k < r.length; k += 2) {
-          let a = r[k], b = r[k + 1]; if (x + a < 0) a = -x; if (x + b > W) b = W - x; if (b <= a) continue;
-          d.set(sd.subarray(srow + a, srow + b), row + x + a);
-        }
-      }
-      for (const i of soft) { const sx = i % sw, sy = (i / sw) | 0, X = x + sx, Y = y + sy; if (X >= 0 && Y >= 0 && X < W && Y < H) d[Y * W + X] = blend(d[Y * W + X], sd[i], 1); }
-      return;
-    }
-    for (let j = Math.max(0, -y), j1 = Math.min(src.h, H - y); j < j1; j += 1) {
-      for (let i = 0; i < sw; i += 1) {
-        const v = sd[j * sw + (flip ? sw - 1 - i : i)]; if (!(v >>> 24)) continue;
-        const X = x + i; if (X < 0 || X >= W) continue;
-        const o = (y + j) * W + X; d[o] = blend(d[o], tint ? tintC(v, tint) : v, alpha);
-      }
-    }
-  }
-  // put one pixel blended over what is there
-  bpx(x, y, c, a = 1) { x |= 0; y |= 0; if (x >= 0 && y >= 0 && x < this.w && y < this.h) { const i = y * this.w + x; this.d[i] = blend(this.d[i], c, a); } }
-  brect(x, y, w, h, c, a = 1) { for (let j = Math.max(0, y | 0); j < Math.min(this.h, (y + h) | 0); j += 1) for (let i = Math.max(0, x | 0); i < Math.min(this.w, (x + w) | 0); i += 1) this.d[j * this.w + i] = blend(this.d[j * this.w + i], c, a); }
-  map(fn) { const { w, h, d } = this; for (let y = 0; y < h; y += 1) for (let x = 0; x < w; x += 1) { const i = y * w + x; const v = fn(d[i], x, y); if (v !== undefined) d[i] = v; } return this; }
-  toCanvas(cv) { const c = cv || mkCanvas(this.w, this.h); c.getContext('2d').putImageData(this.img, 0, 0); return c; }
-}
-// blend colour c (with its own alpha) over u, times a
-function blend(u, c, a = 1) {
-  const ca = ((c >>> 24) / 255) * a; if (ca >= 0.999) return c | 0xff000000; if (ca <= 0.001) return u;
-  const r = (c & 255) * ca + (u & 255) * (1 - ca), g = ((c >> 8) & 255) * ca + ((u >> 8) & 255) * (1 - ca), b = ((c >> 16) & 255) * ca + ((u >> 16) & 255) * (1 - ca);
-  return ((255 << 24) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0;
-}
-// tint: [hex, amount] pushes a colour towards hex
-function tintC(v, tint) { const t = C(tint[0]), k = tint[1]; const r = (v & 255) * (1 - k) + (t & 255) * k, g = ((v >> 8) & 255) * (1 - k) + ((t >> 8) & 255) * k, b = ((v >> 16) & 255) * (1 - k) + ((t >> 16) & 255) * k; return ((v & 0xff000000) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0; }
-function mkCanvas(w, h) {
-  if (typeof document !== 'undefined') { const c = document.createElement('canvas'); c.width = Math.max(1, w); c.height = Math.max(1, h); return c; }
-  return new OffscreenCanvas(Math.max(1, w), Math.max(1, h));
-}
-function ctx2d(c) { const g = c.getContext('2d'); g.imageSmoothingEnabled = false; return g; }
-
-// A painter that works through masks: each part is a set of pixels with an owner id, so a part can be shaded by its
-// own edges (light from the upper left) and outlined only where it overlaps what was drawn before it.
-class Painter {
-  constructor(w, h, ox = 0, oy = 0) { this.b = new Buf(w, h); this.own = new Int16Array(w * h); this.ox = ox; this.oy = oy; this.n = 0; }
-  // draw a part: inside(x, y) in part coordinates (origin at ox, oy), colours {hi, base, lo, lo2}, optional detail(x, y) -> hex|null
-  part(inside, bbox, col, { line = null, light = [-1, -1], shade = true, detail = null, rim = 1, alpha = 255 } = {}) {
-    const id = ++this.n, { b, own, ox, oy } = this, w = b.w;
-    const x0 = Math.max(0, Math.floor(bbox[0] + ox)), x1 = Math.min(b.w - 1, Math.ceil(bbox[2] + ox)), y0 = Math.max(0, Math.floor(bbox[1] + oy)), y1 = Math.min(b.h - 1, Math.ceil(bbox[3] + oy));
-    const m = new Uint8Array((x1 - x0 + 3) * (y1 - y0 + 3)), mw = x1 - x0 + 3;
-    if (inside.pts) {
-      // polygon: scanline fill at pixel centres (much faster than testing every pixel)
-      const pts = inside.pts;
-      for (let y = y0; y <= y1; y += 1) {
-        const yc = y + 0.5 - oy, xs = [];
-        for (let i = 0, n = pts.length; i < n; i += 1) { const a = pts[i], b = pts[(i + 1) % n]; if ((a[1] <= yc && b[1] > yc) || (b[1] <= yc && a[1] > yc)) xs.push(a[0] + ((yc - a[1]) / (b[1] - a[1])) * (b[0] - a[0])); }
-        xs.sort((p, q) => p - q);
-        for (let k = 0; k + 1 < xs.length; k += 2) { const xa = Math.max(x0, Math.ceil(xs[k] + ox - 0.5)), xb = Math.min(x1, Math.floor(xs[k + 1] + ox - 0.5)); for (let x = xa; x <= xb; x += 1) m[(y - y0 + 1) * mw + (x - x0 + 1)] = 1; }
-      }
-    } else for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) if (inside(x + 0.5 - ox, y + 0.5 - oy)) m[(y - y0 + 1) * mw + (x - x0 + 1)] = 1;
-    const at = (x, y) => (x < x0 - 1 || x > x1 + 1 || y < y0 - 1 || y > y1 + 1 ? 0 : m[(y - y0 + 1) * mw + (x - x0 + 1)]);
-    const C0 = { hi: C(col.hi), base: C(col.base), lo: C(col.lo), lo2: C(col.lo2) };
-    const lineC = line ? C(line) : C(col.lo2);
-    // outline where the part meets something drawn earlier
-    if (line !== false) for (let y = y0 - 1; y <= y1 + 1; y += 1) for (let x = x0 - 1; x <= x1 + 1; x += 1) {
-      if (x < 0 || y < 0 || x >= w || y >= b.h || at(x, y)) continue;
-      if (!(at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1))) continue;
-      const i = y * w + x; if (own[i]) { b.d[i] = lineC; own[i] = id; }
-    }
-    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) {
-      if (!at(x, y)) continue;
-      let c = C0.base;
-      if (shade) {
-        const lx = light[0], ly = light[1];
-        const toLight = !at(x + lx, y) || !at(x, y + ly), away = !at(x - lx, y) || !at(x, y - ly);
-        const away2 = rim > 1 && (!at(x - 2 * lx, y) || !at(x, y - 2 * ly));
-        if (away) c = C0.lo; else if (away2) c = C0.lo; else if (toLight) c = C0.hi;
-      }
-      if (detail) { const dc = detail(x + 0.5 - ox, y + 0.5 - oy, c === C0.hi ? 1 : c === C0.lo ? -1 : 0); if (dc) c = typeof dc === 'number' ? dc : C(dc); }
-      const i = y * w + x;
-      if (alpha < 255) {
-        // sheer: blend over what is already there; over nothing, keep it see-through
-        const u = b.d[i], a = alpha / 255;
-        if (u >>> 24) { const r = ((c & 255) * a + (u & 255) * (1 - a)) | 0, g = (((c >> 8) & 255) * a + ((u >> 8) & 255) * (1 - a)) | 0, bl = (((c >> 16) & 255) * a + ((u >> 16) & 255) * (1 - a)) | 0; c = ((255 << 24) | (bl << 16) | (g << 8) | r) >>> 0; }
-        else c = ((alpha << 24) | (c & 0xffffff)) >>> 0;
-      }
-      b.d[i] = c; own[i] = id;
-    }
-    return id;
-  }
-  // hand-placed pixels (string map) at a part-coordinate position
-  map(rows, x, y, pal, flip = false) {
-    const { b, own, ox, oy } = this; const id = ++this.n;
-    rows.forEach((row, j) => { for (let i = 0; i < row.length; i += 1) { const ch = row[flip ? row.length - 1 - i : i]; const col = pal[ch]; if (!col) continue; const X = Math.round(x + ox) + i, Y = Math.round(y + oy) + j; if (b.inside(X, Y)) { b.d[Y * b.w + X] = C(col); own[Y * b.w + X] = id; } } });
-    return id;
-  }
-  dot(x, y, hex) { const X = Math.floor(x + this.ox), Y = Math.floor(y + this.oy); if (this.b.inside(X, Y)) { this.b.d[Y * this.b.w + X] = C(hex); this.own[Y * this.b.w + X] = this.n; } }
-}
-
-// geometry helpers for part shapes (all in part coordinates)
-const S = {
-  capsule: (ax, ay, bx, by, r) => { const vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1e-9; return [(x, y) => { const px = x - ax, py = y - ay, t = Math.max(0, Math.min(1, (px * vx + py * vy) / L)); const dx = px - vx * t, dy = py - vy * t; return dx * dx + dy * dy <= r * r; }, [Math.min(ax, bx) - r - 1, Math.min(ay, by) - r - 1, Math.max(ax, bx) + r + 1, Math.max(ay, by) + r + 1]]; },
-  // tapered limb: radius ra at a, rb at b
-  taper: (ax, ay, bx, by, ra, rb) => { const vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1e-9; const R = Math.max(ra, rb); return [(x, y) => { const px = x - ax, py = y - ay, t = Math.max(0, Math.min(1, (px * vx + py * vy) / L)); const dx = px - vx * t, dy = py - vy * t, r = ra + (rb - ra) * t; return dx * dx + dy * dy <= r * r; }, [Math.min(ax, bx) - R - 1, Math.min(ay, by) - R - 1, Math.max(ax, bx) + R + 1, Math.max(ay, by) + R + 1]]; },
-  ellipse: (cx, cy, rx, ry, rot = 0) => { const c = Math.cos(rot), s = Math.sin(rot); const R = Math.max(rx, ry); return [(x, y) => { const dx = x - cx, dy = y - cy; const u = (dx * c + dy * s) / rx, v = (-dx * s + dy * c) / ry; return u * u + v * v <= 1; }, [cx - R - 1, cy - R - 1, cx + R + 1, cy + R + 1]]; },
-  poly: (pts) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } const f = (x, y) => { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside; } return inside; }; f.pts = pts; return [f, [x0 - 1, y0 - 1, x1 + 1, y1 + 1]]; },
-  union: (...shapes) => [(x, y) => shapes.some((s) => s[0](x, y)), [Math.min(...shapes.map((s) => s[1][0])), Math.min(...shapes.map((s) => s[1][1])), Math.max(...shapes.map((s) => s[1][2])), Math.max(...shapes.map((s) => s[1][3]))]],
-  minus: (a, b) => [(x, y) => a[0](x, y) && !b[0](x, y), a[1]],
-  clipY: (a, ymin, ymax) => [(x, y) => y >= ymin && y <= ymax && a[0](x, y), a[1]],
-};
-
-// The display: one low-resolution canvas the scenes draw into, shown through a full-resolution canvas scaled by a whole
-// number of device pixels (crisp in every browser, no CSS image-rendering needed).
-function createDisplay(parent, { targetH = 216, targetPortraitW = 162 } = {}) {
-  const out = document.createElement('canvas');
-  out.className = 'ws3-px';
-  parent.appendChild(out);
-  const og = out.getContext('2d');
-  const low = mkCanvas(1, 1);
-  let g = ctx2d(low);
-  const st = { w: 1, h: 1, s: 1, ox: 0, oy: 0, devW: 1, devH: 1, cssW: 1, cssH: 1 };
-  function resize(cssW, cssH) {
-    const dpr = Math.min(3, window.devicePixelRatio || 1);
-    const devW = Math.max(1, Math.round(cssW * dpr)), devH = Math.max(1, Math.round(cssH * dpr));
-    const portrait = cssW / cssH < 0.9;
-    const s = Math.max(1, portrait ? Math.round(devW / targetPortraitW) : Math.round(devH / targetH));
-    const w = Math.ceil(devW / s), h = Math.ceil(devH / s);
-    if (w === st.w && h === st.h && s === st.s && devW === st.devW && devH === st.devH) return st;
-    Object.assign(st, { w, h, s, devW, devH, cssW, cssH, ox: Math.floor((devW - w * s) / 2), oy: Math.floor((devH - h * s) / 2), portrait });
-    out.width = devW; out.height = devH; out.style.width = cssW + 'px'; out.style.height = cssH + 'px';
-    low.width = w; low.height = h; g = ctx2d(low);
-    return st;
-  }
-  // show the low-resolution frame; mosaic > 1 shows it in coarser blocks (for transitions)
-  const tmp = mkCanvas(1, 1);
-  function present(mosaic = 1, fade = 0, fadeColor = '#fff3dc') {
-    og.imageSmoothingEnabled = false;
-    if (mosaic > 1.01) {
-      const m = Math.max(1, Math.round(mosaic)), tw = Math.ceil(st.w / m), th = Math.ceil(st.h / m);
-      if (tmp.width !== tw || tmp.height !== th) { tmp.width = tw; tmp.height = th; }
-      const tg = tmp.getContext('2d'); tg.imageSmoothingEnabled = true; tg.clearRect(0, 0, tw, th); tg.drawImage(low, 0, 0, tw, th);
-      og.drawImage(tmp, 0, 0, tw, th, st.ox, st.oy, tw * m * st.s, th * m * st.s);
-    } else og.drawImage(low, 0, 0, st.w, st.h, st.ox, st.oy, st.w * st.s, st.h * st.s);
-    if (fade > 0.001) { og.globalAlpha = Math.min(1, fade); og.fillStyle = fadeColor; og.fillRect(0, 0, st.devW, st.devH); og.globalAlpha = 1; }
-  }
-  return { el: out, st, resize, present, get g() { return g; }, low };
-}
-
-__e.C=C;__e.CLEAR=CLEAR;__e.preparer=preparer;__e.hexToRgb=hexToRgb;__e.rgbToHex=rgbToHex;__e.mix=mix;__e.ramp=ramp;__e.BAYER=BAYER;__e.dith=dith;__e.Buf=Buf;__e.blend=blend;__e.mkCanvas=mkCanvas;__e.ctx2d=ctx2d;__e.Painter=Painter;__e.S=S;__e.createDisplay=createDisplay;
-},
 /* src/px/campus.js */
 function(__r,__e){// Chapter 1 in pixels — the campus at golden hour. The couple, in school tracksuits, walks hand in hand along the
 // running track; behind them the football field, flame trees in flower and the teaching building; bougainvillea
 // along the near edge. The camera cranes down from the sky at the start and back up at the end.
-const {Buf:Buf,C:C,mix:mix,preparer:preparer}=__r(23);
-const {vgrad:vgrad,cloud:cloud,crown:crown,trunk:trunk,ridge:ridge,glow:glow,rng:rng,hash2:hash2,fbm:fbm,shadowEllipse:shadowEllipse}=__r(25);
-const {coupleFrame:coupleFrame,strideOf:strideOf}=__r(26);
+const {Buf:Buf,C:C,mix:mix,preparer:preparer}=__r(21);
+const {vgrad:vgrad,cloud:cloud,crown:crown,trunk:trunk,ridge:ridge,glow:glow,rng:rng,hash2:hash2,fbm:fbm,shadowEllipse:shadowEllipse}=__r(23);
+const {coupleFrame:coupleFrame,strideOf:strideOf}=__r(22);
 
 const CAMPUS_DUR = 22;
 const FR = 16;
@@ -5656,450 +6396,12 @@ function createCampus() {
 
 __e.CAMPUS_DUR=CAMPUS_DUR;__e.WALK_SPEED=WALK_SPEED;__e.createCampus=createCampus;
 },
-/* src/px/paint.js */
-function(__r,__e){// Painting helpers for pixel backgrounds: dithered gradients, clouds, tree crowns, hills, buildings, water.
-// Everything is deterministic (seeded) and drawn straight into a Buf.
-const {Buf:Buf,C:C,BAYER:BAYER,mix:mix,blend:blend}=__r(23);
-
-function rng(seed) { let s = (seed >>> 0) || 1; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; }; }
-function hash2(x, y, s = 0) { let h = (x * 374761393 + y * 668265263 + s * 2246822519) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
-function vnoise(x, s = 0) { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return hash2(i, 0, s) * (1 - u) + hash2(i + 1, 0, s) * u; }
-function fbm(x, s = 0, oct = 4) { let a = 0.5, v = 0, f = 1; for (let k = 0; k < oct; k += 1) { v += a * vnoise(x * f, s + k * 17); f *= 2.03; a *= 0.5; } return v; }
-function vnoise2(x, y, s = 0) { const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy); const a = hash2(i, j, s), b = hash2(i + 1, j, s), c = hash2(i, j + 1, s), d = hash2(i + 1, j + 1, s); return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v; }
-function fbm2(x, y, s = 0, oct = 4) { let a = 0.5, v = 0, f = 1; for (let k = 0; k < oct; k += 1) { v += a * vnoise2(x * f, y * f, s + k * 31); f *= 2.02; a *= 0.5; } return v; }
-
-// colour at t in [0, 1] along evenly spaced colours, dithered between neighbours
-function ditherPick(cols, t, x, y) {
-  const n = cols.length - 1, f = Math.max(0, Math.min(0.9999, t)) * n, i = Math.floor(f), fr = f - i;
-  return fr > BAYER[((y & 3) << 2) | (x & 3)] ? cols[Math.min(n, i + 1)] : cols[i];
-}
-function vgrad(b, x0, y0, w, h, hexes, { band = 1 } = {}) {
-  const cols = hexes.map((h2) => C(h2)), n = cols.length - 1, xa = Math.max(0, x0), xb = Math.min(b.w, x0 + w);
-  for (let y = Math.max(0, y0); y < Math.min(b.h, y0 + h); y += 1) {
-    // per row: the two neighbouring colours and how far between them; per pixel only the ordered-dither test
-    const t = (y - y0) / Math.max(1, h - 1), f = Math.max(0, Math.min(0.9999, t)) * n, i = Math.floor(f), fr = f - i;
-    const c0 = cols[i], c1 = cols[Math.min(n, i + 1)], yy = (((y / band) | 0) & 3) << 2, row = y * b.w;
-    for (let x = xa; x < xb; x += 1) b.d[row + x] = fr > BAYER[yy | (((x / band) | 0) & 3)] ? c1 : c0;
-  }
-}
-// soft radial glow, quantised to a few dithered steps (for the sun, lamps, fireworks)
-function glow(b, cx, cy, r, hex, strength = 0.6, steps = 4) {
-  const c = C(hex);
-  const ya = Math.max(0, Math.floor(cy - r)), yb = Math.min(b.h - 1, cy + r), xa = Math.max(0, Math.floor(cx - r)), xb = Math.min(b.w - 1, cx + r);
-  for (let y = ya; y <= yb; y += 1) for (let x = xa; x <= xb; x += 1) {
-    const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy) / r; if (d >= 1) continue;
-    let a = (1 - d) * (1 - d) * strength; a = Math.floor(a * steps + BAYER[((y & 3) << 2) | (x & 3)]) / steps;
-    if (a > 0) b.d[y * b.w + x] = blend(b.d[y * b.w + x], c, a);
-  }
-}
-// cumulus cloud: a flat-bottomed heap of puffs, lit from the upper left; pal = [hi, base, lo, lo2]
-function cloud(b, x, y, w, h, pal, seed = 1) {
-  const r = rng(seed); const puffs = [];
-  const n = 4 + Math.floor(w / 14);
-  for (let i = 0; i < n; i += 1) { const u = (i + 0.5) / n; const px = x + u * w + (r() - 0.5) * 6; const ph = h * (0.45 + 0.55 * Math.sin(Math.PI * u) * (0.7 + r() * 0.3)); puffs.push([px, y + h - ph * 0.55, ph * 0.55 + r() * 2]); }
-  const np = puffs.length, PX = new Float64Array(np), PY = new Float64Array(np), PR = new Float64Array(np);
-  puffs.forEach(([px, py, pr], i) => { PX[i] = px; PY[i] = py; PR[i] = pr * pr; });
-  const inside = (X, Y) => { if (Y > y + h) return false; for (let i = 0; i < np; i += 1) { const dx = X - PX[i], dy = Y - PY[i]; if (dx * dx + dy * dy <= PR[i]) return true; } return false; };
-  const cols = pal.map((p) => C(p));
-  for (let Y = Math.floor(y - h); Y <= y + h; Y += 1) for (let X = Math.floor(x - 4); X <= x + w + 4; X += 1) {
-    if (X < 0 || Y < 0 || X >= b.w || Y >= b.h || !inside(X + 0.5, Y + 0.5)) continue;
-    // light: how open is the upper-left, how close to the flat bottom
-    const up = !inside(X - 1.5, Y - 1.5) ? 1 : !inside(X - 3, Y - 3) ? 0.6 : 0;
-    const bottom = (Y - (y + h * 0.35)) / (h * 0.65);
-    let k = 1; if (up >= 1) k = 0; else if (bottom > 0.55) k = bottom > 0.82 ? 3 : 2; else if (up > 0) k = BAYER[((Y & 3) << 2) | (X & 3)] < 0.5 ? 0 : 1;
-    if (k === 2 && BAYER[((Y & 3) << 2) | (X & 3)] < 0.3 && bottom < 0.7) k = 1;
-    b.d[Y * b.w + X] = cols[k];
-  }
-}
-// leafy tree crown: clustered blobs with a noisy rim, highlight clusters on the upper left, deep shade underneath
-function crown(b, cx, cy, rx, ry, pal, seed = 1, { sway = 0 } = {}) {
-  const r = rng(seed); const blobs = [];
-  const n = 5 + Math.floor((rx * ry) / 40);
-  for (let i = 0; i < n; i += 1) { const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 0.62; blobs.push([cx + Math.cos(a) * rx * d, cy + Math.sin(a) * ry * d * 0.9, (0.38 + r() * 0.22) * Math.min(rx, ry)]); }
-  blobs.push([cx, cy, Math.min(rx, ry) * 0.62]);
-  // blobs as flat arrays (x, y, 1/r): this runs twice per pixel of every tree and hedge
-  const nb = blobs.length, BX = new Float64Array(nb), BY = new Float64Array(nb), BI = new Float64Array(nb);
-  blobs.forEach(([bx, by, br], i) => { BX[i] = bx; BY[i] = by; BI[i] = 1 / br; });
-  const field = (X, Y) => { let m = -9; const sx = sway ? sway * (cy + ry - Y) / ry : 0; for (let i = 0; i < nb; i += 1) { const dx = (X - BX[i] - sx) * BI[i], dy = (Y - BY[i]) * BI[i]; const v = 1 - (dx * dx + dy * dy); if (v > m) m = v; } return m; };
-  const cols = pal.map((p) => C(p));
-  for (let Y = Math.floor(cy - ry * 1.2); Y <= cy + ry * 1.2; Y += 1) for (let X = Math.floor(cx - rx * 1.25); X <= cx + rx * 1.25; X += 1) {
-    if (X < 0 || Y < 0 || X >= b.w || Y >= b.h) continue;
-    const f0 = field(X + 0.5, Y + 0.5); if (f0 <= -0.05) continue;
-    const f = f0 + (hash2(X >> 1, Y >> 1, seed) - 0.5) * 0.1; if (f <= 0) continue;
-    const lit = field(X - 1.5, Y - 2.5);
-    const shade = (Y - (cy - ry * 0.2)) / (ry * 1.2) + (X - cx) / (rx * 4);
-    let k;
-    if (lit <= 0.02) k = 0; else if (shade > 0.62) k = 3; else if (shade > 0.28) k = 2; else k = 1;
-    // leaf texture: a few pixels jump one step
-    const hh = hash2(X >> 1, Y >> 1, seed + 3); if (hh > 0.86 && k > 0) k -= 1; else if (hh < 0.1 && k < 3) k += 1;
-    b.d[Y * b.w + X] = cols[k];
-  }
-}
-function trunk(b, x, y0, y1, w, pal) {
-  const cols = pal.map((p) => C(p));
-  for (let y = Math.floor(y0); y < y1; y += 1) for (let i = 0; i < w; i += 1) { const xx = Math.round(x - w / 2 + i); if (xx < 0 || xx >= b.w || y < 0 || y >= b.h) continue; b.d[y * b.w + xx] = cols[i === 0 ? 0 : i >= w - 1 ? 2 : 1]; }
-}
-// a silhouette band: top edge from fbm noise; fill colour with optional dithered fade to another at the bottom
-function ridge(b, x0, x1, baseY, amp, freq, hex, seed = 1, { bottomHex = null, fade = 0, maxY = Infinity } = {}) {
-  const c = C(hex), c2 = bottomHex ? C(bottomHex) : c;
-  for (let x = Math.max(0, x0); x < Math.min(b.w, x1); x += 1) {
-    const top = Math.round(baseY - amp * fbm(x * freq, seed));
-    for (let y = Math.max(0, top); y < Math.min(b.h, maxY); y += 1) { const t = fade ? (y - top) / fade : 0; b.d[y * b.w + x] = t > BAYER[((y & 3) << 2) | (x & 3)] ? c2 : c; }
-  }
-}
-// shadow ellipse on the ground (dithered, translucent)
-function shadowEllipse(b, cx, cy, rx, ry, a = 0.35, hex = '#1b1020') {
-  const c = C(hex);
-  for (let y = Math.floor(cy - ry); y <= cy + ry; y += 1) for (let x = Math.floor(cx - rx); x <= cx + rx; x += 1) { const u = (x + 0.5 - cx) / rx, v = (y + 0.5 - cy) / ry; const d = u * u + v * v; if (d <= 1) b.bpx(x, y, c, a * (d < 0.5 ? 1 : 0.6)); }
-}
-
-__e.rng=rng;__e.hash2=hash2;__e.vnoise=vnoise;__e.fbm=fbm;__e.vnoise2=vnoise2;__e.fbm2=fbm2;__e.ditherPick=ditherPick;__e.vgrad=vgrad;__e.glow=glow;__e.cloud=cloud;__e.crown=crown;__e.trunk=trunk;__e.ridge=ridge;__e.shadowEllipse=shadowEllipse;
-},
-/* src/px/people.js */
-function(__r,__e){// The couple as pixel sprites, drawn from a small skeleton so the walk has as many in-between frames as we like.
-// Side view facing right (a mirrored copy faces left). Three outfits: school (Shenzhen tracksuit uniforms), office
-// (navy suit / beige blazer and pencil skirt) and wedding (tuxedo / gown with train and veil). Everything is drawn
-// through the Painter, which shades each part from its own edges (light from the upper left) and draws a contour
-// line only where a part overlaps an earlier one; the silhouette gets one dark outline at the end.
-const {Painter:Painter,S:S,ramp:ramp,C:C,mix:mix,Buf:Buf}=__r(23);
-
-const INK = '#2a1a2c';
-const R = (h, o) => ramp(h, o);
-const deg = Math.PI / 180;
-
-// ---------------------------------------------------------------- gait
-// one leg over its own cycle: [phase, thigh angle (forward +), knee flexion, foot pitch (toes up +)]
-const LEG = [
-  [0.0, 21, 3, 14], [0.125, 15, 15, 2], [0.25, 3, 8, 0], [0.375, -11, 3, -2],
-  [0.5, -19, 12, -26], [0.625, -11, 40, -24], [0.75, 7, 56, -8], [0.875, 19, 24, 6],
-];
-function cyc(keys, p, k) {
-  p = ((p % 1) + 1) % 1;
-  let i = 0; while (i < keys.length - 1 && keys[i + 1][0] <= p) i += 1;
-  const a = keys[i], b = keys[(i + 1) % keys.length], pb = i + 1 < keys.length ? b[0] : 1;
-  // periodic Catmull-Rom through the neighbouring keys for smooth velocities
-  const a0 = keys[(i - 1 + keys.length) % keys.length], b1 = keys[(i + 2) % keys.length];
-  const u = (p - a[0]) / (pb - a[0]);
-  const P0 = a0[k], P1 = a[k], P2 = b[k], P3 = b1[k];
-  return 0.5 * (2 * P1 + (-P0 + P2) * u + (2 * P0 - 5 * P1 + 4 * P2 - P3) * u * u + (-P0 + 3 * P1 - 3 * P2 + P3) * u * u * u);
-}
-// body measures (pixels)
-const BODY = {
-  groom: { thigh: 10, shin: 9.2, ankle: 1.4, foot: 4.6, torso: 12.6, neck: 1.2, head: 5.7, upper: 7, fore: 6.4, legR: [2.15, 1.55], armR: [1.4, 1.2] },
-  bride: { thigh: 9.4, shin: 8.7, ankle: 1.3, foot: 4.0, torso: 11.6, neck: 1.2, head: 5.6, upper: 6.4, fore: 5.9, legR: [1.95, 1.35], armR: [1.35, 1.15] },
-};
-function legPose(B, p) {
-  const th = cyc(LEG, p, 1) * deg, kn = cyc(LEG, p, 2) * deg, ft = cyc(LEG, p, 3) * deg;
-  const kx = Math.sin(th) * B.thigh, ky = Math.cos(th) * B.thigh;
-  const sa = th - kn; const ax = kx + Math.sin(sa) * B.shin, ay = ky + Math.cos(sa) * B.shin;
-  return { th, kn, ft, knee: [kx, ky], ankle: [ax, ay], ext: ay + B.ankle };
-}
-// pose for a walk phase (0..1). Coordinates relative to the point on the ground below the hip; y up is negative.
-function walkPose(who, phase, { swing = 1, stride = 1, lean = 2.5 } = {}) {
-  const B = BODY[who];
-  const sc = (l) => ({ ...l, knee: [l.knee[0] * stride, l.knee[1]], ankle: [l.ankle[0] * stride, l.ankle[1]] });
-  const L = sc(legPose(B, phase)), Rr = sc(legPose(B, phase + 0.5));
-  const hipY = -Math.max(L.ext, Rr.ext);
-  const leg = (l) => {
-    const knee = [l.knee[0], hipY + l.knee[1]], ankle = [l.ankle[0], hipY + l.ankle[1]];
-    const toe = [ankle[0] + Math.cos(l.ft) * B.foot, ankle[1] + B.ankle - Math.sin(l.ft) * B.foot * 0.9];
-    const heel = [ankle[0] - 1.0, ankle[1] + B.ankle];
-    return { hip: [0, hipY], knee, ankle, toe, heel, th: l.th };
-  };
-  const legs = [leg(L), leg(Rr)]; // 0 = near (right) leg, 1 = far leg
-  const lean_ = lean * deg;
-  const sh = [Math.sin(lean_) * B.torso, hipY - Math.cos(lean_) * B.torso];
-  const arm = (th, side) => {
-    const a = -th * 0.75 * swing, el = (12 + Math.max(0, -th / deg) * 0.3 + Math.max(0, th / deg) * 0.9) * deg;
-    const e = [sh[0] + Math.sin(a) * B.upper, sh[1] + Math.cos(a) * B.upper];
-    const fa = a + el; const h = [e[0] + Math.sin(fa) * B.fore, e[1] + Math.cos(fa) * B.fore];
-    return { sh: [sh[0] + (side ? -0.6 : 0.3), sh[1] + 1.2], el: e, hand: h };
-  };
-  const arms = [arm(L.th, 0), arm(Rr.th, 1)]; // near arm swings against the near leg
-  const neck = [sh[0] + 0.6, sh[1] - B.neck];
-  const head = [neck[0] + 0.9, neck[1] - B.head + 0.4];
-  return { who, hip: [0, hipY], sh, neck, head, legs, arms, lean: lean_ };
-}
-function standPose(who, { breathe = 0, armsFront = false } = {}) {
-  const P = walkPose(who, 0.28, { swing: 0.15, stride: 0.25, lean: 1 });
-  if (breathe) { P.sh[1] -= breathe; P.neck[1] -= breathe; P.head[1] -= breathe; }
-  return P;
-}
-// stride length (pixels per cycle) for a given person and stride scale: the support foot's travel
-function strideOf(who, stride = 1) {
-  const B = BODY[who];
-  const a = legPose(B, 0.02).ankle[0], b = legPose(B, 0.48).ankle[0];
-  return 2 * Math.abs(a - b) * stride;
-}
-
-// ---------------------------------------------------------------- palettes
-const SKIN = { hi: '#ffe2c8', base: '#f5c7a3', lo: '#dc9f86', lo2: '#b9786c' };
-const SKIN_B = { hi: '#ffe6d2', base: '#f8cdb0', lo: '#e2a690', lo2: '#bd7f72' };
-const HAIR_G = { hi: '#5c4a5a', base: '#2f2433', lo: '#211726', lo2: '#170f1c' };
-const HAIR_B = { hi: '#6b4a4a', base: '#3b2729', lo: '#2a1a1e', lo2: '#1d1216' };
-const OUTFITS = {
-  school: {
-    groom: { top: R('#f4f6fb', { shadow: '#5d6a9a' }), trim: R('#2f5fb8'), pants: R('#28305a'), shoe: R('#f2f2f2', { shadow: '#6c7090' }), stripe: '#eef2ff', backpack: R('#c2423a') },
-    bride: { top: R('#f6f7fb', { shadow: '#6a6f9e' }), trim: R('#2f5fb8'), pants: R('#28305a'), shoe: R('#f2f2f2', { shadow: '#6c7090' }), stripe: '#eef2ff', book: R('#c8202e') },
-  },
-  office: {
-    groom: { top: R('#2b3f72'), pants: R('#28396a'), shirt: '#f4f2ee', tie: R('#c41e2e'), shoe: R('#2a2228'), case: R('#5b3a2a') },
-    bride: { top: R('#e7d2ae', { shadow: '#8a6a5a' }), skirt: R('#5c5f6c'), blouse: '#fbf8f2', shoe: R('#26202a'), badge: '#ffffff', lanyard: '#c41e2e', cup: R('#f7f1e6') },
-  },
-  wedding: {
-    groom: { top: R('#24232c', { light: '#a8a6c8' }), lapel: R('#3a3946', { light: '#d8d6ee' }), pants: R('#1f1e26', { light: '#9a98b8' }), shirt: '#ffffff', tie: '#121117', shoe: R('#151419', { light: '#c8c6e0' }), flower: '#e8475f' },
-    bride: { gown: R('#fbf8f4', { shadow: '#8d7fa6', k: 0.85 }), lace: '#efe6ec', veil: '#f6f3fb', shoe: R('#f4efe6'), bouquet: ['#e8475f', '#f6a8b8', '#ffffff', '#c92a44'], leaf: '#5f8a4a', gem: '#ffe7a0' },
-  },
-};
-
-// ---------------------------------------------------------------- drawing
-function sleeve(P, a, b, r0, r1, col, opts) { const s = S.taper(a[0], a[1], b[0], b[1], r0, r1); return P.part(s[0], s[1], col, opts); }
-function hand(P, h, col, r = 1.25) { const s = S.ellipse(h[0], h[1] + 0.3, r, r * 1.1); P.part(s[0], s[1], col, { shade: false }); }
-function torsoShape(pose, w0, w1, extra = 0) {
-  // a soft trapezoid from hips to shoulders, a little deeper at the chest
-  const [hx, hy] = pose.hip, [sx, sy] = pose.sh, k = pose.lean;
-  const fx = Math.cos(k), fy = Math.sin(k); // front direction ~ +x
-  const back0 = [hx - w0 * 0.55, hy + 1], front0 = [hx + w0 * 0.45, hy + 1];
-  const backS = [sx - w1 * 0.55 - fy, sy + 0.5], frontS = [sx + w1 * 0.45 + 0.3, sy + 0.8];
-  const chest = [sx + w1 * 0.5 + 0.8 + extra, sy + 3.5], belly = [hx + w0 * 0.5, hy - 3];
-  const backMid = [hx - w0 * 0.62, hy - 5];
-  return S.poly([back0, backMid, backS, [sx - 0.5, sy - 0.6], frontS, chest, belly, front0]);
-}
-function legShape(l, r0, r1) { return S.union(S.taper(l.hip[0], l.hip[1], l.knee[0], l.knee[1], r0, (r0 + r1) / 2), S.taper(l.knee[0], l.knee[1], l.ankle[0], l.ankle[1], (r0 + r1) / 2, r1)); }
-function shoe(P, l, col, { heel = false, h = 1.6 } = {}) {
-  const [ax, ay] = l.ankle, [tx, ty] = l.toe;
-  if (heel) {
-    const s = S.union(S.capsule(ax - 0.2, ay + 0.3, tx, ty, 0.95), S.capsule(ax - 0.9, ay + 0.5, ax - 0.9, ay + 1.8, 0.5));
-    return P.part(s[0], s[1], col, { rim: 1 });
-  }
-  const s = S.union(S.capsule(l.heel[0] + 0.6, l.heel[1] - 0.8, tx - 0.4, ty - 0.6, h * 0.62), S.capsule(l.heel[0] + 0.5, l.heel[1] - 0.6, tx - 0.2, ty - 0.5, h * 0.55));
-  return P.part(s[0], s[1], col);
-}
-// heads: hand-placed pixel maps (profile facing right), anchored at the head centre; hair styles differ per outfit
-const HEADS = {
-  groom: [
-    '....dHHHHd....',
-    '..dHHHHHHHHd..',
-    '.dHHhhhhHHHHd.',
-    '.HHhhHHHHHHHHH',
-    'dHHHHHHHHHSHHH',
-    'dHHHHHHHSSSS..',
-    'dHHHHHSSSSeS..',
-    'dHHHHrSSSSeSS.',
-    '.dHHHrsSSSSSSS',
-    '.dHHHSSSSbSS..',
-    '..dHHsSSSSSm..',
-    '...dHsSSSSSS..',
-    '.....sssSSs...',
-  ],
-  bride: [
-    '....dHHHHd....',
-    '..dHHHHHHHHd..',
-    '.dHHhhhhHHHHd.',
-    'dHHhhHHHHHHHHH',
-    'dHHHHHHHHHHSHH',
-    'dHHHHHHHHSSSS.',
-    'dHHHHHHSSSeeS.',
-    'dHHHHHrSSSeSS.',
-    '.dHHHHrsSSSSSS',
-    '.dHHHHSSSSbSS.',
-    '..dHHHsSSSSSm.',
-    '...dHHsSSSSS..',
-    '......sssSs...',
-  ],
-};
-function head(P, pose, who, style, t = 0, veil = null) {
-  const [hx, hy] = pose.head;
-  const skin = who === 'groom' ? SKIN : SKIN_B, hair = who === 'groom' ? HAIR_G : HAIR_B;
-  const nk = S.capsule(pose.neck[0] - 0.4, pose.neck[1] + 1.5, hx - 0.6, hy + 3, 1.25); P.part(nk[0], nk[1], skin, { line: false });
-  if (style === 'ponytail') {
-    const sw = Math.sin(t * Math.PI * 2) * 1.0;
-    const s = S.union(S.taper(hx - 5.6, hy - 2.6, hx - 8.2 + sw * 0.6, hy + 5.6, 1.9, 0.9), S.ellipse(hx - 5.6, hy - 2.2, 1.8, 1.9));
-    P.part(s[0], s[1], hair, { rim: 1 });
-  }
-  if (style === 'bun' || style === 'updo') { const b = S.ellipse(hx - 6.0, hy + (style === 'bun' ? 2.6 : -1.4), 2.5, 2.4); P.part(b[0], b[1], hair); }
-  if (veil) veil();
-  const pal = { H: hair.base, h: hair.hi, d: hair.lo, S: skin.base, L: skin.hi, s: skin.lo, r: skin.lo2, e: '#21161f', b: '#f29b98', m: who === 'bride' ? '#d0505a' : '#b56a62' };
-  P.map(HEADS[who], hx - 6.5, hy - 6.5, pal);
-  if (style === 'ponytail') { P.dot(hx - 6.2, hy - 4.2, '#e8475f'); P.dot(hx - 6.2, hy - 3.2, '#e8475f'); }
-}
-
-// one person; layer: 'far' parts darker. o: outfit colours
-function drawPerson(P, who, outfitName, pose, { t = 0, holdNear = null, holdFar = null, hideFarArm = false, extras = true } = {}) {
-  const o = OUTFITS[outfitName][who];
-  const skin = who === 'groom' ? SKIN : SKIN_B;
-  const far = (c) => ({ hi: c.base, base: c.lo, lo: c.lo2, lo2: mix(c.lo2, '#1a1020', 0.4) });
-  const [nearLeg, farLeg] = pose.legs, [nearArm, farArm] = pose.arms;
-  if (holdNear) { nearArm.hand = holdNear; nearArm.el = [(nearArm.sh[0] + holdNear[0]) / 2 + 0.6, (nearArm.sh[1] + holdNear[1]) / 2 + 0.8]; }
-  if (holdFar) { farArm.hand = holdFar; farArm.el = [(farArm.sh[0] + holdFar[0]) / 2 - 0.4, (farArm.sh[1] + holdFar[1]) / 2 + 0.8]; }
-  const B = BODY[who];
-  const sleeveCol = outfitName === 'school' ? o.trim : outfitName === 'wedding' && who === 'bride' ? null : o.top;
-  const armDraw = (a, colFn, isFar) => {
-    if (sleeveCol) {
-      sleeve(P, a.sh, a.el, B.armR[0] + 0.25, B.armR[1] + 0.2, colFn(sleeveCol));
-      sleeve(P, a.el, a.hand, B.armR[1] + 0.2, B.armR[1], colFn(sleeveCol));
-      if (outfitName === 'school') { const s = S.capsule(a.el[0] + (a.hand[0] - a.el[0]) * 0.86, a.el[1] + (a.hand[1] - a.el[1]) * 0.86, a.el[0] + (a.hand[0] - a.el[0]) * 0.9, a.el[1] + (a.hand[1] - a.el[1]) * 0.9, 1.2); P.part(s[0], s[1], colFn(o.top), { shade: false }); }
-      if (outfitName !== 'school') { const cuff = S.capsule(a.el[0] + (a.hand[0] - a.el[0]) * 0.9, a.el[1] + (a.hand[1] - a.el[1]) * 0.9, a.el[0] + (a.hand[0] - a.el[0]) * 0.93, a.el[1] + (a.hand[1] - a.el[1]) * 0.93, 1.05); P.part(cuff[0], cuff[1], colFn(R(o.shirt || o.blouse || '#ffffff')), { shade: false }); }
-    } else {
-      // bare arms (the gown) with long satin gloves? keep it simple: skin
-      sleeve(P, a.sh, a.el, B.armR[0], B.armR[1], colFn(skin)); sleeve(P, a.el, a.hand, B.armR[1], B.armR[1] - 0.1, colFn(skin));
-    }
-    hand(P, a.hand, colFn(skin), who === 'groom' ? 1.3 : 1.15);
-  };
-  // ---- far side: arm and leg
-  if (!hideFarArm) armDraw(farArm, far, true);
-  if (outfitName === 'school' && who === 'groom') {
-    // backpack behind the shoulders
-    const [sx, sy] = pose.sh; const bp = S.poly([[sx - 7.2, sy + 1.5], [sx - 6.6, sy - 0.5], [sx - 3, sy - 0.8], [sx - 2.4, sy + 9.5], [sx - 6.6, sy + 10]]);
-    P.part(bp[0], bp[1], o.backpack, { detail: (x, y) => (Math.abs(y - (sy + 5)) < 0.5 && x < sx - 3 ? o.backpack.lo2 : null) });
-  }
-  const legCol = o.pants || (outfitName === 'office' ? null : null);
-  if (outfitName === 'wedding' && who === 'bride') {
-    // gown: far half of the skirt and the train trailing behind
-    gownBack(P, pose, o, t);
-  } else if (outfitName === 'office' && who === 'bride') {
-    const l = farLeg; const s = legShape(l, B.legR[0] - 0.3, B.legR[1] - 0.25); P.part(s[0], s[1], far(R('#e9bba0', { shadow: '#7a4a5a' })));
-    shoe(P, l, far(o.shoe), { heel: true });
-  } else {
-    const s = legShape(farLeg, B.legR[0], B.legR[1]); P.part(s[0], s[1], far(legCol));
-    shoe(P, farLeg, far(o.shoe));
-  }
-  // ---- torso
-  if (outfitName === 'wedding' && who === 'bride') gownFront(P, pose, o, t, nearLeg, farLeg);
-  else {
-    const ts = torsoShape(pose, who === 'groom' ? 7.4 : 6.6, who === 'groom' ? 8.2 : 7.0, who === 'bride' ? 0.6 : 0);
-    const [sx, sy] = pose.sh, [hx, hy] = pose.hip;
-    const front = (x, y) => x - (hx + (sx - hx) * ((hy - y) / (hy - sy)));
-    let detail = null;
-    if (outfitName === 'school') {
-      // white body with blue shoulder yoke and a zip; a school badge on the chest
-      detail = (x, y, sh) => { if (y < sy + 3.2) return sh < 0 ? o.trim.lo : sh > 0 ? o.trim.hi : o.trim.base; if (Math.abs(front(x, y) - 3.3) < 0.5 && y > sy + 3) return '#c9cee0'; if (y > hy - 1.6) return o.trim.lo; if (Math.abs(x - (sx + 1)) < 0.6 && Math.abs(y - (sy + 5.5)) < 0.6) return '#e7b23c'; return null; };
-    } else if (outfitName === 'office' && who === 'groom') {
-      detail = (x, y) => { const f = front(x, y); if (y > sy + 0.4 && y < sy + 9.5 && f > 1.2) { if (f > 2.2 && y > sy + 1.4) return y < sy + 2.4 ? o.tie.hi : y > sy + 8.4 ? o.tie.lo : o.tie.base; if (y < sy + 5.5) return o.shirt; } if (Math.abs(y - (hy - 1)) < 0.6 && f > 1) return '#1d2a52'; return null; };
-    } else if (outfitName === 'office' && who === 'bride') {
-      detail = (x, y) => { const f = front(x, y); if (f > 1.8 && y < sy + 5 && y > sy + 0.4) return o.blouse; if (f > 2.6 && y > sy + 4.6 && y < sy + 6.2) return o.badge; if (Math.abs(f - 2.2) < 0.55 && y > sy + 0.6 && y < sy + 4.8) return o.lanyard; return null; };
-    } else if (outfitName === 'wedding' && who === 'groom') {
-      detail = (x, y, sh) => { const f = front(x, y); if (f > 1.4 && y < sy + 7 && y > sy + 0.6) { if (f > 2.6 && y < sy + 2.4) return o.tie; if (f > 2.3) return o.shirt; return sh > 0 ? o.lapel.hi : o.lapel.base; } if (Math.abs(x - (sx + 1.2)) < 0.7 && Math.abs(y - (sy + 3.4)) < 0.7) return o.flower; return null; };
-    }
-    P.part(ts[0], ts[1], o.top, { detail });
-  }
-  // ---- near leg
-  if (!(outfitName === 'wedding' && who === 'bride')) {
-    if (outfitName === 'office' && who === 'bride') {
-      const s = legShape(nearLeg, B.legR[0] - 0.3, B.legR[1] - 0.25); P.part(s[0], s[1], R('#f0c4a8', { shadow: '#8a5a62' }));
-      shoe(P, nearLeg, o.shoe, { heel: true });
-      // pencil skirt over both thighs, to just above the knee
-      const [hx, hy] = pose.hip, k1 = nearLeg.knee, k2 = farLeg.knee;
-      const sk = S.poly([[hx - 4, hy - 1.5], [hx + 3.6, hy - 1.5], [Math.max(k1[0], k2[0]) + 2.1, Math.max(k1[1], k2[1]) - 1.2], [Math.min(k1[0], k2[0]) - 2.0, Math.max(k1[1], k2[1]) - 1.2]]);
-      P.part(sk[0], sk[1], o.skirt);
-    } else {
-      const s = legShape(nearLeg, B.legR[0], B.legR[1]);
-      P.part(s[0], s[1], legCol, { detail: outfitName === 'school' ? (x, y) => { const l = nearLeg; const vx = l.knee[0] - l.hip[0], vy = l.knee[1] - l.hip[1]; const d = ((x - l.hip[0]) * vy - (y - l.hip[1]) * vx) / Math.hypot(vx, vy); return Math.abs(d + 0.2) < 0.5 && y > l.hip[1] + 1 ? o.stripe : null; } : outfitName === 'wedding' ? (x, y) => { const l = nearLeg; const vx = l.knee[0] - l.hip[0], vy = l.knee[1] - l.hip[1]; const d = ((x - l.hip[0]) * vy - (y - l.hip[1]) * vx) / Math.hypot(vx, vy); return Math.abs(d) < 0.45 ? o.lapel.base : null; } : null });
-      shoe(P, nearLeg, o.shoe);
-    }
-  }
-  // ---- head
-  const style = who === 'groom' ? 'short' : outfitName === 'school' ? 'ponytail' : outfitName === 'office' ? 'bun' : 'updo';
-  const veil = outfitName === 'wedding' && who === 'bride' ? () => veilBack(P, pose, o, t) : null;
-  head(P, pose, who, style, t, veil);
-  if (outfitName === 'wedding' && who === 'bride') { const [hx, hy] = pose.head; P.dot(hx - 2.2, hy - 5.4, o.gem); P.dot(hx - 1.2, hy - 5.8, '#ffffff'); P.dot(hx - 3.2, hy - 4.8, o.gem); }
-  if (outfitName === 'school' && who === 'bride') { const [hx, hy] = pose.head; P.dot(hx - 4.4, hy - 2.6, '#e8475f'); P.dot(hx - 4.4, hy - 1.6, '#e8475f'); }
-  // ---- near arm (and what it carries)
-  armDraw(nearArm, (c) => c, false);
-  if (extras) {
-    const h = nearArm.hand;
-    if (outfitName === 'school' && who === 'bride') { const b = S.poly([[h[0] - 0.5, h[1] - 6], [h[0] + 3.2, h[1] - 6.6], [h[0] + 3.8, h[1] + 0.6], [h[0], h[1] + 1.2]]); P.part(b[0], b[1], o.book, { detail: (x, y) => (Math.abs(x - (h[0] + 0.4)) < 0.5 ? '#f3e3c8' : null) }); hand(P, [h[0] + 0.2, h[1] - 1.2], SKIN_B, 1.1); }
-    if (outfitName === 'office' && who === 'bride') { const c = S.poly([[h[0] - 0.4, h[1] - 3.8], [h[0] + 2.6, h[1] - 3.8], [h[0] + 2.2, h[1] + 0.8], [h[0] - 0.1, h[1] + 0.8]]); P.part(c[0], c[1], o.cup, { detail: (x, y) => (y > h[1] - 2.4 && y < h[1] - 0.6 ? '#8a5a3c' : y < h[1] - 3.2 ? '#ffffff' : null) }); hand(P, [h[0] + 0.3, h[1] - 0.8], SKIN_B, 1.05); }
-    if (outfitName === 'wedding' && who === 'bride') bouquet(P, h, o);
-    if (outfitName === 'office' && who === 'groom' && !hideFarArm) { const fh = farArm.hand; const c = S.poly([[fh[0] - 3.4, fh[1] + 0.6], [fh[0] + 3.4, fh[1] + 0.6], [fh[0] + 3.2, fh[1] + 5.4], [fh[0] - 3.2, fh[1] + 5.4]]); P.part(c[0], c[1], far(o.case), { detail: (x, y) => (Math.abs(y - (fh[1] + 2.2)) < 0.5 ? o.case.lo2 : null) }); }
-  }
-}
-function bouquet(P, h, o) {
-  const cx = h[0] + 1.6, cy = h[1] - 1.8;
-  const leaves = S.union(S.ellipse(cx - 1.6, cy + 1.6, 1.4, 2.8, 0.6), S.ellipse(cx + 1.9, cy + 1.4, 1.4, 2.6, -0.5), S.capsule(cx - 0.2, cy + 2, cx - 0.6, cy + 5, 0.9));
-  P.part(leaves[0], leaves[1], R(o.leaf));
-  const pts = [[0, 0, 0], [-1.6, -0.8, 1], [1.6, -0.6, 0], [-0.4, -2.0, 2], [1.2, -2.2, 1], [-1.8, 1.0, 3], [1.8, 1.2, 1], [0.2, 1.4, 0]];
-  for (const [dx, dy, k] of pts) { const s = S.ellipse(cx + dx, cy + dy, 1.3, 1.2); P.part(s[0], s[1], R(o.bouquet[k]), { line: o.bouquet[k] === '#ffffff' ? '#d8c8d4' : null }); }
-  hand(P, [h[0] + 0.2, h[1] + 0.2], SKIN_B, 1.05);
-}
-// the gown: a fitted bodice, a full skirt to the ground that sways with the step, and a train behind
-function gownBack(P, pose, o, t) {
-  const [hx, hy] = pose.hip;
-  const sw = Math.sin(t * Math.PI * 2) * 0.8;
-  // train: a long tapering sweep on the ground behind her
-  const tr = S.poly([[hx - 2, hy + 2], [hx - 9 + sw, hy + 12], [hx - 17 + sw * 1.5, hy + 18.6], [hx - 24 + sw * 2, hy + 19.6], [hx - 26 + sw * 2, hy + 20.2], [hx - 6, hy + 20.4], [hx + 2, hy + 19]]);
-  P.part(tr[0], tr[1], { hi: o.gown.hi, base: o.gown.lo, lo: o.gown.lo2, lo2: mix(o.gown.lo2, '#5a4a70', 0.3) }, { detail: (x, y) => (((x * 0.7 + y * 1.3) | 0) % 5 === 0 && y > hy + 14 ? o.lace : null) });
-}
-function gownFront(P, pose, o, t, nearLeg, farLeg) {
-  const [hx, hy] = pose.hip, [sx, sy] = pose.sh;
-  const step = (nearLeg.knee[0] - farLeg.knee[0]) * 0.18;
-  const sw = Math.sin(t * Math.PI * 2) * 0.6;
-  // full skirt: waist to floor, front hem moves with the leading knee
-  const sk = S.poly([[hx - 3.6, hy - 2.2], [hx + 3.4, hy - 2.2], [hx + 7.2 + step + sw, hy + 12], [hx + 9.4 + step + sw, hy + 19.4], [hx + 2, hy + 20.6], [hx - 8.8 + sw, hy + 20.2], [hx - 8.4, hy + 12]]);
-  P.part(sk[0], sk[1], o.gown, { rim: 2, detail: (x, y, s) => { const k = (x - hx) * 0.55 + (y - hy) * 0.08; if (s === 0 && y > hy + 3 && Math.abs(((k % 3) + 3) % 3 - 1.5) < 0.35) return o.gown.lo; if (y > hy + 18.4 && ((x | 0) % 2 === 0)) return o.lace; return null; } });
-  // bodice: strapless, with a sweetheart neckline and a satin sash at the waist
-  const bd = S.poly([[hx - 3.2, hy - 1.4], [hx + 3.4, hy - 1.4], [sx + 3.6, sy + 4.6], [sx + 2.6, sy + 2.2], [sx + 1.2, sy + 3.0], [sx - 1.2, sy + 2.4], [sx - 3.2, sy + 3.4]]);
-  P.part(bd[0], bd[1], o.gown, { detail: (x, y) => (Math.abs(y - (hy - 2.2)) < 0.6 ? '#f2d9a6' : (((x + y) | 0) % 3 === 0 && y < hy - 3 ? o.lace : null)) });
-  // shoulders and chest above the neckline are skin
-  const sk2 = S.poly([[sx - 2.6, sy + 3.0], [sx - 2.2, sy - 0.2], [sx + 2.0, sy - 0.4], [sx + 2.8, sy + 2.0], [sx + 1.2, sy + 2.6], [sx - 1.0, sy + 2.2]]);
-  P.part(sk2[0], sk2[1], SKIN_B, { line: false });
-}
-function veilBack(P, pose, o, t) {
-  const [hx, hy] = pose.head;
-  const fl = Math.sin(t * Math.PI * 2 + 0.6) * 0.9, fl2 = Math.sin(t * Math.PI * 2 + 1.9) * 1.1;
-  // a sheer tulle drape from the comb at the back of the head down past the waist
-  const v = S.poly([[hx - 3.6, hy - 4.6], [hx - 6.4, hy - 2.6], [hx - 8.6 + fl, hy + 6], [hx - 10.4 + fl2, hy + 15], [hx - 10.8 + fl2, hy + 19.5], [hx - 6.8 + fl, hy + 19], [hx - 4.6, hy + 9], [hx - 3.2, hy + 2]]);
-  P.part(v[0], v[1], { hi: '#ffffff', base: o.veil, lo: mix(o.veil, '#b0a4c8', 0.3), lo2: mix(o.veil, '#9a8eb8', 0.5) }, { rim: 1, line: false, alpha: 175, detail: (x, y) => ((((x * 3 + y * 2) | 0) % 7 === 0) ? '#ffffff' : null) });
-}
-
-// ---------------------------------------------------------------- the couple
-// Hand in hand, the bride nearer the viewer and half a step ahead. Returns a Buf and the anchor (ground point below
-// the groom's hip). Cached by outfit and frame.
-const coupleCache = new Map();
-const COUPLE_W = 84, COUPLE_H = 64, ANCHOR = [34, 58];
-function coupleFrame(outfit, frame, frames = 16, { bridePhase = 0.06, stand = false } = {}) {
-  const key = `${outfit}:${frame}:${frames}:${stand ? 1 : 0}`;
-  let hit = coupleCache.get(key);
-  if (hit) return hit;
-  const P = new Painter(COUPLE_W, COUPLE_H, ANCHOR[0], ANCHOR[1]);
-  const ph = frame / frames;
-  const gp = stand ? standPose('groom', { breathe: frame % 2 ? 0 : 0 }) : walkPose('groom', ph);
-  const bpz = stand ? standPose('bride') : walkPose('bride', ph + bridePhase);
-  const bx = 15, by = 2;
-  // shift the bride's pose to her place
-  const mv = (p, dx, dy) => { const f = (q) => { q[0] += dx; q[1] += dy; }; f(p.hip); f(p.sh); f(p.neck); f(p.head); p.legs.forEach((l) => [l.hip, l.knee, l.ankle, l.toe, l.heel].forEach(f)); p.arms.forEach((a) => [a.sh, a.el, a.hand].forEach(f)); return p; };
-  mv(bpz, bx, by);
-  // joined hands: between them, just behind her back, swinging a little with the step
-  const sw = Math.sin(ph * Math.PI * 2) * 0.8;
-  const join = [bx - 6.0 + sw * 0.5, gp.hip[1] + 3.4];
-  drawPerson(P, 'groom', outfit, gp, { t: ph, holdNear: join });
-  drawPerson(P, 'bride', outfit, bpz, { t: ph, holdFar: [join[0] + 0.8, join[1] + 0.3] });
-  P.b.outline(C(INK));
-  hit = { buf: P.b, canvas: null, anchor: ANCHOR };
-  coupleCache.set(key, hit);
-  return hit;
-}
-function singleFrame(who, outfit, frame, frames = 16, { stand = false, flip = false } = {}) {
-  const key = `${who}:${outfit}:${frame}:${frames}:${stand ? 1 : 0}`;
-  let hit = coupleCache.get(key);
-  if (hit) return hit;
-  const P = new Painter(56, COUPLE_H, 28, ANCHOR[1]);
-  const pose = stand ? standPose(who) : walkPose(who, frame / frames);
-  drawPerson(P, who, outfit, pose, { t: frame / frames });
-  P.b.outline(C(INK));
-  hit = { buf: P.b, canvas: null, anchor: [28, ANCHOR[1]] };
-  coupleCache.set(key, hit);
-  return hit;
-}
-
-__e.INK=INK;__e.BODY=BODY;__e.walkPose=walkPose;__e.standPose=standPose;__e.strideOf=strideOf;__e.OUTFITS=OUTFITS;__e.drawPerson=drawPerson;__e.COUPLE_W=COUPLE_W;__e.COUPLE_H=COUPLE_H;__e.ANCHOR=ANCHOR;__e.coupleFrame=coupleFrame;__e.singleFrame=singleFrame;
-},
 /* src/px/office.js */
 function(__r,__e){// Chapter 2 in pixels — the CBD plaza on a bright morning. In office clothes, the couple walks hand in hand across the
 // plaza past a fountain towards their building; glass towers rise behind, people hurry to work, pigeons take off.
-const {Buf:Buf,C:C,mix:mix,preparer:preparer}=__r(23);
-const {vgrad:vgrad,cloud:cloud,crown:crown,trunk:trunk,glow:glow,rng:rng,hash2:hash2,shadowEllipse:shadowEllipse}=__r(25);
-const {coupleFrame:coupleFrame,singleFrame:singleFrame,strideOf:strideOf}=__r(26);
+const {Buf:Buf,C:C,mix:mix,preparer:preparer}=__r(21);
+const {vgrad:vgrad,cloud:cloud,crown:crown,trunk:trunk,glow:glow,rng:rng,hash2:hash2,shadowEllipse:shadowEllipse}=__r(23);
+const {coupleFrame:coupleFrame,singleFrame:singleFrame,strideOf:strideOf}=__r(22);
 
 const OFFICE_DUR = 22;
 const FR = 16;
@@ -6282,19 +6584,20 @@ __e.OFFICE_DUR=OFFICE_DUR;__e.createOffice=createOffice;
 },
 /* src/px/wedding.js */
 function(__r,__e){// Chapter 3 in pixels — the wedding by the sea at sunset.
-//  0–6 s    from behind, close: the office clothes give way to the gown and the tuxedo, a sheer veil settles
+//  0–6 s    from behind, close: hand in hand facing the sunset sea, already in the gown and the tuxedo (they
+//           changed clothes running along the ribbon)
 //  6–42 s   nine steps of four seconds as they walk hand in hand: 1 confetti and fireworks · 2 streamers ·
 //           3 the red silk ball · 4 whales leap from the sea over their heads (out on the pier, sea and land together) ·
 //           5 sika deer and white rabbits · 6 birds fly in from beyond the frame to two phoenixes · 7–9 petals until
 //           they fill the screen
 //  42–46 s  they stop before the pavilion and turn to each other
 //  46–51 s  the camera moves on to the book on the pavilion table
-const {Buf:Buf,C:C,mix:mix,preparer:preparer}=__r(23);
-const {vgrad:vgrad,cloud:cloud,crown:crown,trunk:trunk,ridge:ridge,glow:glow,rng:rng,hash2:hash2,fbm:fbm,shadowEllipse:shadowEllipse}=__r(25);
-const {coupleFrame:coupleFrame,singleFrame:singleFrame,strideOf:strideOf,OUTFITS:OUTFITS}=__r(26);
-const {drawWhale:drawWhale,drawSpout:drawSpout,drawSplash:drawSplash,deerFrame:deerFrame,rabbitFrame:rabbitFrame,birdFrame:birdFrame,drawPhoenix:drawPhoenix,phoenixFrame:phoenixFrame,phoenixAura:phoenixAura}=__r(29);
-const {confetti:confetti,firework:firework,streamers:streamers,drawSilkBall:drawSilkBall,silkBall:silkBall,petals:petals,sparkles:sparkles}=__r(30);
-const {backCouple:backCouple,BACK_ANCHOR:BACK_ANCHOR}=__r(31);
+const {Buf:Buf,C:C,mix:mix,preparer:preparer}=__r(21);
+const {vgrad:vgrad,cloud:cloud,crown:crown,trunk:trunk,ridge:ridge,glow:glow,rng:rng,hash2:hash2,fbm:fbm,shadowEllipse:shadowEllipse}=__r(23);
+const {coupleFrame:coupleFrame,singleFrame:singleFrame,strideOf:strideOf,OUTFITS:OUTFITS}=__r(22);
+const {drawWhale:drawWhale,drawSpout:drawSpout,drawSplash:drawSplash,deerFrame:deerFrame,rabbitFrame:rabbitFrame,birdFrame:birdFrame,drawPhoenix:drawPhoenix,phoenixFrame:phoenixFrame,phoenixAura:phoenixAura}=__r(30);
+const {confetti:confetti,firework:firework,streamers:streamers,drawSilkBall:drawSilkBall,silkBall:silkBall,petals:petals}=__r(31);
+const {backCouple:backCouple,BACK_ANCHOR:BACK_ANCHOR}=__r(32);
 
 const WEDDING_DUR = 51;
 const STEP0 = 6, STEP = 4;
@@ -6581,9 +6884,8 @@ function closeUp(F, t, ground, portrait) {
   for (let y = G - 30; y < h; y += 1) for (let x = 0; x < w; x += 1) { const u = (y - (G - 30)) / 60; const half = 10 + u * 40; const onRunner = Math.abs(x - w / 2) < half; F.d[y * w + x] = C(onRunner ? (Math.abs(Math.abs(x - w / 2) - half) < 1 ? '#d8ccd6' : '#f8f2ee') : PAL.grass[hash2(x >> 1, y >> 1, 4) > 0.8 ? 2 : 1]); }
   // flower stands either side of the runner
   for (let k = 0; k < 4; k += 1) for (const sd of [-1, 1]) { const u = k / 3, x = Math.round(w / 2 + sd * (14 + u * 50) * (portrait ? 0.7 : 1)), y = Math.round(G - 30 + u * 34), hh = 8 + u * 14; F.rect(x, y - hh, 2, hh, C('#f6f2ec')); F.circle(x + 1, y - hh - 3, 3 + u * 3, C(PAL.pink[1])); F.circle(x, y - hh - 4, 1.5 + u, C(PAL.pink[0])); }
-  // the couple: office clothes, then the sweep, then the veil
-  const sweepG = Math.min(1, Math.max(0, (t - 1.2) / 2.0)), sweepB = Math.min(1, Math.max(0, (t - 1.5) / 2.2));
-  const veil = Math.min(1, Math.max(0, (t - 3.7) / 1.0));
+  // the couple in their wedding clothes (the change happened on the ribbon)
+  const sweepG = 1, sweepB = 1, veil = 1;
   const sway = (t * 0.6) % 1;
   const office = backCouple('office', sway), wed = backCouple('wedding', sway, { veil: Math.round(veil * 4) / 4 });
   const ax = Math.round(w / 2 - BACK_ANCHOR[0]), ay = G + 6 - BACK_ANCHOR[1];
@@ -6606,7 +6908,7 @@ function closeUp(F, t, ground, portrait) {
     if (k <= 0 || k >= 1) continue;
     for (let x = x0; x < x1; x += 1) { F.bpx(x, line, C('#fff2b0'), 0.9); F.bpx(x, line - 1, C('#ffd870'), 0.5); }
   }
-  sparkles(F, t, w / 2 + 10, G - 30, { n: 60, r: 40, h: 110, amount: Math.min(1, Math.max(0, (t - 1.0) / 0.5)) * (1 - Math.min(1, Math.max(0, (t - 4.6) / 0.8))) });
+
   petals(F, t, 0.05 + Math.max(0, t - 4) * 0.04, { seed: 9 });
   return { coupleX: w / 2, ground: G };
 }
@@ -6705,8 +7007,8 @@ __e.WEDDING_DUR=WEDDING_DUR;__e.STEP0=STEP0;__e.STEP=STEP;__e.WEDDING_BEATS=WEDD
 /* src/px/fauna.js */
 function(__r,__e){// Animals in pixels: the humpback whale (drawn per frame so it can arc, roll over and spout), sika deer, white
 // rabbits, doves and magpies, and the phoenix. All drawing is deterministic for a given time.
-const {Buf:Buf,C:C,mix:mix,BAYER:BAYER,Painter:Painter,S:S,ramp:ramp,blend:blend}=__r(23);
-const {hash2:hash2}=__r(25);
+const {Buf:Buf,C:C,mix:mix,BAYER:BAYER,Painter:Painter,S:S,ramp:ramp,blend:blend}=__r(21);
+const {hash2:hash2}=__r(23);
 
 const INK = '#1d1626';
 // ---------------------------------------------------------------- humpback whale
@@ -7054,8 +7356,8 @@ __e.drawWhale=drawWhale;__e.drawSpout=drawSpout;__e.drawSplash=drawSplash;__e.de
 /* src/px/fx.js */
 function(__r,__e){// Celebration effects in pixels, all pure functions of time: confetti cannons, fireworks, curling streamers, the red
 // silk ball on its ribbon, falling petals (three densities, near ones larger), and transformation sparkles.
-const {C:C,BAYER:BAYER,Painter:Painter,S:S,ramp:ramp,Buf:Buf,mix:mix}=__r(23);
-const {hash2:hash2}=__r(25);
+const {C:C,BAYER:BAYER,Painter:Painter,S:S,ramp:ramp,Buf:Buf,mix:mix}=__r(21);
+const {hash2:hash2}=__r(23);
 
 const CONF = ['#e8475f', '#ffd25a', '#ffffff', '#f6a8c8', '#7ac8f0', '#b88cf0', '#ff8a3c', '#9be07a'];
 // confetti from two cannons at the bottom corners of the screen (screen space), fired at time t0
@@ -7193,7 +7495,7 @@ __e.confetti=confetti;__e.firework=firework;__e.streamers=streamers;__e.silkBall
 function(__r,__e){// The couple seen from behind, close up, for the outfit change at the start of the wedding: standing hand in hand
 // facing the sunset sea. Office clothes and wedding clothes are separate sprites; the change sweeps a golden line
 // down each of them, the wedding clothes appearing above it. A sheer veil then settles on the bride.
-const {Painter:Painter,S:S,ramp:ramp,C:C,mix:mix,Buf:Buf}=__r(23);
+const {Painter:Painter,S:S,ramp:ramp,C:C,mix:mix,Buf:Buf}=__r(21);
 
 const SKIN = ramp('#f2c4a2', { shadow: '#7a4a5a' }), HAIR_G = ramp('#2c2230', { shadow: '#0c0810', light: '#6a5a78' }), HAIR_B = ramp('#3a2629', { shadow: '#120a0c', light: '#7a5a5a' });
 const BACK_W = 120, BACK_H = 110, BACK_ANCHOR = [60, 106];
